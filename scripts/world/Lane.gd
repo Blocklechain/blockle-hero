@@ -195,7 +195,21 @@ func _serpentine() -> PackedVector2Array:
 	# Sweeps have to clear each other by more than two WIDE stations plus a
 	# corridor, or two neighbouring folds carve into one shapeless open field and
 	# the lane the player walks is no longer the lane that was planned.
-	var gap_min: float = (MAX_STATION_RADIUS * 2.0 + 16.0) * _scale
+	# SIZED FOR THE CARVE REACH, NOT THE STATION RADIUS.
+	#
+	# This was MAX_STATION_RADIUS * 2.0 + 16.0 — "two wide stations plus a
+	# corridor" — which is the right idea measured against the wrong thing. The
+	# carve blends over `width * 3.6`, so two folds' fields merge long before
+	# their stations touch, and the lane the player walked was not the lane that
+	# was planned: A* reached a late map's boss in 176 m of a 370 m lane (48%)
+	# through carved ground joining non-adjacent folds. Raising the walk mask's
+	# carve threshold could not fix it, because the shortcut WAS carved.
+	#
+	# 3.8 = 1.9 stations either side, measured: it takes that late map from 48%
+	# to 89% of the lane actually walked. The cost is accepted — fewer folds fit
+	# a region, so lanes are ~305 m rather than ~400 m. A shorter lane that is
+	# genuinely a lane beats a longer one the player walks a third of.
+	var gap_min: float = (MAX_STATION_RADIUS * 3.8 + 16.0) * _scale
 	var rows: int = clampi(int((lv * 2.0) / maxf(gap_min, 1.0)) + 1, 2, 5)
 	var gap: float = (lv * 2.0) / float(rows - 1)
 

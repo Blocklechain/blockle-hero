@@ -217,8 +217,19 @@ func _the_journey() -> void:
 			float(longest["v"]) * 100.0, int(longest["seed"])])
 
 	var shortest: Dictionary = _worst("len", false)
+	# 1.6 -> 1.3, and the reason is recorded rather than the number quietly
+	# edited. Fold separation is now sized for the carve REACH (width * 3.6)
+	# instead of the station radius, because folds whose fields merged let the
+	# player cut between them — a late map's boss was reachable in 48% of its
+	# lane. Properly separated folds are bigger, so fewer fit a region and lanes
+	# run ~305 m instead of ~400 m.
+	#
+	# The journey got LONGER even though the lane got shorter: the player used
+	# to walk 0.32 x 400 = ~128 m of it, and now walks 0.82 x 305 = ~250 m. The
+	# drawn length is the weaker measure; encountertest's `bypass:` line is the
+	# one that matters, and it is the reason this threshold moved.
 	check("a lane is far longer than the region is wide",
-		float(shortest["v"]) >= REGION.x * 1.6,
+		float(shortest["v"]) >= REGION.x * 1.3,
 		"shortest lane %.0f m across a %.0f m region (seed %d)" % [
 			float(shortest["v"]), REGION.x, int(shortest["seed"])])
 

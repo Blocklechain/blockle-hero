@@ -866,11 +866,26 @@ func _same(a: Array, b: Array) -> bool:
 
 func _the_ring_survives(m: Dictionary, roster: PackedStringArray) -> void:
 	print("\n=== the arena ring still works ===")
-	# No plan, so no lane: the ring strategy is what `build` must fall back to.
-	# Run on real walkable ground, because "in a ring around the player" is a
-	# claim about where bodies END UP after the walkability snap.
-	var path: Pathing = m["path"]
-	var start: Vector2 = m["start"]
+	# THE RING MUST BE TESTED IN AN ARENA, NOT IN A LANE.
+	#
+	# This used the lane region's walkability, which was harmless while a lane
+	# region was mostly open ground. It is not harmless now: Terrain only marks
+	# carved ground walkable on a lane, so the snap drags every ring spawn onto
+	# the lane and they come out strung along it — measured at 70 degrees apart
+	# instead of surrounding the player. That was the test placing an arena
+	# strategy in a world arenas never see, not the strategy breaking.
+	#
+	# So build a real ARENA region for it. The ring is the PvP placement and
+	# PvP runs on Layout's arenas, where the ground genuinely is open.
+	var extent: float = float(CELLS) * CELL
+	var arena_seed: int = Campaign.region_seed(CAMPAIGN_SEED, int(m["index"]))
+	var arena_plan: Layout = Terrain.plan_for(Terrain.Kind.ARENA, arena_seed,
+		Vector2(extent, extent))
+	var arena_ter: Terrain = Terrain.generate(arena_seed,
+		Campaign.biome_at(int(m["index"])), CELLS, CELL, arena_plan)
+	var path := Pathing.new(arena_ter)
+	var start: Vector2 = path.nearest_walkable_centre(Vector2.ZERO)
+	print("  arena region: %.0f%% walkable" % [arena_ter.walkable_fraction() * 100.0])
 	var ring: Array = Encounter.build(int(m["index"]), Campaign.Tier.NORMAL,
 		CAMPAIGN_SEED, roster, AVOID, path, start, null)
 
