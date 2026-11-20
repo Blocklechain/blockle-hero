@@ -16,9 +16,10 @@ extends RefCounted
 # is only one of them — a disclosure that is a hand-maintained copy of the real
 # table is how studios end up publishing numbers that are quietly wrong.
 #
-# `tools/oddstest.gd` rolls a large sample and asserts the observed rates match
-# this table, so a tuning change that forgets the disclosure fails the test
-# rather than shipping.
+# `tools/metatest.gd` rolls a large sample and asserts the observed rates match
+# this table; `tools/storetest.gd` asserts the store's disclosure screen prints
+# this table's own numbers. So a tuning change that forgets the disclosure fails
+# a test rather than shipping.
 # ------------------------------------------------------------------------------
 
 ## Probability of each champion rarity from one spawn crystal. Must sum to 1.

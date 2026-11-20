@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3 uid="uid://bhudtest001"]
+
+; Drives scenes/Play.tscn and asserts on what a thumb can do. A scene rather
+; than a --script harness because `--script` never opens a window, and the
+; tap-through check needs a viewport real input can land in.
+[ext_resource type="Script" path="res://tools/hudtest.gd" id="1"]
+
+[node name="HudTest" type="Node3D"]
+script = ExtResource("1")

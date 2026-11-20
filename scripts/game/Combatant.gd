@@ -39,6 +39,23 @@ var alive: bool = true
 var rng_seed: int = 0
 var _rolls: int = 0
 
+## Callables run on every combatant the instant it is created, passed the new
+## Combatant.
+##
+## WHY A HOOK ON THE CONSTRUCTOR RATHER THAN AT THE SPAWN SITES: feedback — the
+## hit thud, the death cue — has to cover the player's champion AND every enemy,
+## and enemies will be spawned from several places (campaign waves, bosses,
+## summons) over time. Anything a spawner has to remember is something the next
+## spawner will forget, and the symptom is an enemy that dies in total silence,
+## which nobody notices in review because nothing is obviously broken. `make()`
+## is the one door every combatant comes through, so the wiring lives there.
+##
+## Empty by default, so the headless balance tests are unaffected.
+##
+## CONSTRUCT THROUGH `make()`, NOT `Combatant.new()`: a bare `new()` cannot be
+## hooked, so a combatant built that way is born with no feedback attached.
+static var on_spawn: Array[Callable] = []
+
 
 static func make(name: String, team: int, level: int, stats: Stats,
 		school: int, weapon: float, armour_v: float, seed: int) -> Combatant:
@@ -53,6 +70,16 @@ static func make(name: String, team: int, level: int, stats: Stats,
 	c.rng_seed = seed
 	c.max_health = stats.max_health(level) + armour_v * 2.0
 	c.health = c.max_health
+
+	# Fully built before any hook sees it — a listener that reads max_health on
+	# spawn (a health bar does) must not be handed a half-initialised combatant.
+	#
+	# `is_valid()` because a hook outlives the node that registered it: reloading
+	# the scene frees the audio/HUD node while its Callable is still in the
+	# static array, and calling that is an error on every single spawn.
+	for hook in on_spawn:
+		if hook.is_valid():
+			hook.call(c)
 	return c
 
 

@@ -8,6 +8,12 @@ extends RefCounted
 # so the whole of combat can be simulated headlessly. Balance is the easiest
 # thing in a game to get quietly wrong, and a system you can only test by
 # playing it is a system nobody re-tests after a tuning change.
+#
+# `champion_body()` is the one exception to "pure functions over Combatants": it
+# BUILDS one, out of a champion's progression and their equipment. It is here
+# rather than in Roster because what it produces is a combat object, and keeping
+# it beside the code that strikes with it is what stops gear being dropped on
+# the way in — which is exactly what used to happen.
 # ------------------------------------------------------------------------------
 
 ## One resolved cast.
@@ -100,6 +106,51 @@ static func cast(ability: Ability, ctx: Context) -> Result:
 				ability.applies_duration, mag, ability.id))
 
 	return r
+
+
+## Build the combat body a champion actually fights with: their own attributes
+## AND everything they are wearing.
+##
+## THE ONE DOOR FROM PROGRESSION INTO COMBAT, and the reason it exists: a
+## Combatant is constructed with flat `weapon` and `armour` figures and a Stats
+## block (see Combatant.make), and the playable scene used to pass 0, 0 and the
+## champion's bare attributes. Gear therefore moved every number on the
+## character sheet — Roster.effective_damage, Roster.effective_health, the
+## merchant's "better than equipped by 14" — and not one number in an actual
+## fight. A stat that is only true on the sheet is worse than no stat at all.
+##
+## Attributes come from `Roster.effective_stats` rather than being re-summed
+## here, so the sheet the player was reading a moment ago and the damage they
+## are about to deal are the same arithmetic by construction (the rule Stats.gd
+## opens with).
+##
+## `roster` may be null, and the hero may not be owned — tools/ and the editor
+## play a region without an account. That champion gets its level from
+## `fallback_level`, no gear, and the same bare fists an empty weapon slot gives
+## (Stash.UNARMED_POWER), so the rosterless path is weak rather than broken.
+static func champion_body(roster: Roster, hero: String, fallback_level: int,
+		seed: int, display_name: String = "") -> Combatant:
+	var p: HeroProgress = roster.progress(hero) if roster != null else null
+	var stats: Stats
+	var weapon: float = Stash.UNARMED_POWER
+	var armour: float = 0.0
+	var level: int
+
+	if p != null:
+		level = p.level
+		stats = roster.effective_stats(hero)
+		weapon = roster.stash.weapon_power(hero)
+		armour = roster.stash.armour(hero)
+	else:
+		p = HeroProgress.create(hero)
+		p.level = clampi(fallback_level, 1, HeroProgress.MAX_LEVEL)
+		level = p.level
+		# Rarity scales a champion's OWN attributes and never gear, exactly as
+		# Roster.effective_stats does.
+		stats = p.base_stats().scaled(Champion.stat_multiplier(hero))
+
+	return Combatant.make(display_name if display_name != "" else hero,
+		Combatant.Team.PLAYER, level, stats, p.school(), weapon, armour, seed)
 
 
 ## Nearest living enemy of `team`, or null.

@@ -94,8 +94,45 @@ const TARGET_HEIGHT: float = 1.85
 
 signal state_finished(state: int)
 
+## How long the hit reaction lasts. THE SAME 0.25 s the HIT state has always
+## reported as its duration, so `state_finished(HIT)` still fires when the
+## controller expects it — the recoil is layered on, it does not retime anything.
+const RECOIL_TIME: float = 0.25
+
+## Peak recoil, in radians and metres. Big enough to read from across a phone
+## screen at the game camera's distance, small enough to layer over a run cycle
+## without fighting the clip's own lean. 0.22 rad is about 13 degrees.
+const RECOIL_PITCH: float = 0.22       # rad, backwards (negative X)
+const RECOIL_ROLL: float = 0.07        # rad, a twist so it is not a flat nod
+const RECOIL_PUSH: float = 0.085       # m, shoved back along local -Z
+const RECOIL_LIFT: float = 0.03        # m, up off the feet
+const RECOIL_SQUASH: float = 0.06      # fraction, classic squash-and-stretch
+
+## Normalises the impulse in `_advance_recoil()` to peak at exactly 1.0, so the
+## constants above are the real peak rather than roughly a third of it. The raw
+## curve exp(-5.5k)·sin(1.6πk) tops out at 0.2999 (k = 0.1473, where its
+## derivative -5.5·sin + 1.6π·cos crosses zero); this is its reciprocal.
+## Measured, not guessed — the first cut of this leaned the body 4.5 degrees
+## while the source claimed 15.
+const RECOIL_GAIN: float = 3.334
+
+## The flash fades out over this fraction of the recoil, so it is gone well
+## before the body has finished settling. A flash that lasts as long as the
+## movement reads as a shader bug rather than an impact.
+const FLASH_SPAN: float = 0.5
+
+## Overlay alpha at its brightest. This is ADDED to the hero's lit colour, so it
+## climbs fast: at 0.55 the armour, skin and every material difference wash out
+## to a single near-white silhouette, which reads as a texture that failed to
+## load. It has to tint the body, not erase it.
+const FLASH_PEAK: float = 0.30
+
 var hero_name: String = ""
 var is_rigged: bool = false
+
+## True once `kill()` has run. A corpse ignores every further state request —
+## see `set_state()`.
+var is_dead: bool = false
 
 var _model: Node3D = null
 var _anim: AnimationPlayer = null
@@ -104,6 +141,14 @@ var _clip_for: Dictionary = {}          # State -> clip name, resolved once
 var _t: float = 0.0                     # procedural animation clock
 var _speed01: float = 0.0               # 0 standing .. 1 running, drives the stand-in
 var _oneshot_left: float = 0.0
+
+var _recoil_left: float = 0.0
+var _base_pos: Vector3 = Vector3.ZERO
+var _base_rot: Vector3 = Vector3.ZERO
+var _base_scale: Vector3 = Vector3.ONE
+var _meshes: Array[MeshInstance3D] = []
+var _flash: StandardMaterial3D = null
+var _flash_on: bool = false
 
 
 # ------------------------------------------------------------------------------
@@ -221,8 +266,28 @@ func load_hero(hero: String) -> bool:
 			_anim.animation_finished.connect(_on_clip_finished)
 
 	_normalise_scale(scene)
+
+	# Captured AFTER normalising, because that is what sets the model's scale.
+	# The hit reaction works as an offset from this rest pose, so a hero whose
+	# source .glb was authored at a different scale recoils by the same amount
+	# on screen rather than by the same amount in model units.
+	_base_pos = _model.position
+	_base_rot = _model.rotation
+	_base_scale = _model.scale
+	_collect_meshes(scene)
+
 	set_state(State.IDLE)
 	return true
+
+
+# The surfaces the hit flash is painted onto. Gathered once: find_children walks
+# the whole subtree, and a hero can be struck four times a second.
+func _collect_meshes(scene: Node) -> void:
+	_meshes.clear()
+	for c in scene.find_children("*", "MeshInstance3D", true, false):
+		var mi := c as MeshInstance3D
+		if mi != null and mi.mesh != null:
+			_meshes.append(mi)
 
 
 ## The shipped path: a Godot-imported PackedScene out of the PCK. Works in the
@@ -315,10 +380,21 @@ func set_locomotion(speed01: float) -> void:
 
 
 func set_state(st: int, force: bool = false) -> void:
+	# A CORPSE IGNORES ORDERS. The controller's idle branch calls set_state(IDLE)
+	# on every frame it is not moving, so without this the death clip is replaced
+	# by a standing idle on the very next frame and the hero dies by vanishing
+	# into a T-pose stand. Death is the one state nothing may leave.
+	if is_dead and st != State.DEATH:
+		return
 	if st == _state and not force:
 		return
 	_state = st
 	_oneshot_left = 0.0
+
+	# The reaction is driven here as well as from `flinch()` so that an explicit
+	# HIT state still reads on a rigged hero, which otherwise has no clip for it.
+	if st == State.HIT:
+		_recoil_left = RECOIL_TIME
 
 	if is_rigged and _clip_for.has(st):
 		var clip: String = _clip_for[st]
@@ -338,6 +414,50 @@ func set_state(st: int, force: bool = false) -> void:
 		_oneshot_left = 0.25
 
 
+## Take a hit WITHOUT changing state.
+##
+## This is the one the game should normally call. None of the 139 rigged heroes
+## was delivered with a `hit` clip (see tools/bundlecheck.gd, which asserts
+## missing == ["hit"] precisely because it is expected), so switching to
+## State.HIT on a rigged hero used to change the AnimationPlayer not at all —
+## being damaged was completely invisible. Instead the reaction is an ADDITIVE
+## offset on the model node, layered over whichever clip is already playing, so
+## a hero can be struck mid-swing and mid-run and still show it without the
+## swing or the run being interrupted. Interrupting them would also be wrong on
+## a phone: a stagger lock-out costs the player the attack they just paid a
+## cooldown for.
+##
+## Re-striking restarts the reaction, which is what makes a flurry read as a
+## flurry rather than as one long lean.
+func flinch() -> void:
+	if is_dead:
+		return
+	_recoil_left = RECOIL_TIME
+
+
+## True while the hit reaction is playing. Callers use it to avoid stacking
+## feedback (a second screen shake, a second grunt) inside one impact.
+func is_flinching() -> bool:
+	return _recoil_left > 0.0
+
+
+## Die: play the death clip and stay down.
+##
+## Every rigged hero ships a real ~5.8 s death animation, which until now was
+## never played by anything. Separate from `set_state(DEATH)` because death is
+## also a latch: it sets `is_dead`, which locks the rig so nothing can animate
+## the corpse back to its feet.
+func kill() -> void:
+	if is_dead:
+		return
+	is_dead = true
+	_recoil_left = 0.0
+	_set_flash(0.0)
+	# Forced, because a hero killed by the blow that was already playing DEATH
+	# (or killed twice in a frame) must still restart the clip from frame 0.
+	set_state(State.DEATH, true)
+
+
 func _process(delta: float) -> void:
 	_t += delta
 	if _oneshot_left > 0.0:
@@ -346,6 +466,8 @@ func _process(delta: float) -> void:
 			state_finished.emit(_state)
 	if not is_rigged and _model != null:
 		_procedural(delta)
+	if _model != null:
+		_advance_recoil(delta)
 
 
 # ------------------------------------------------------------------------------
@@ -384,6 +506,85 @@ func _procedural(_delta: float) -> void:
 	_model.rotation = Vector3(lean, 0.0, roll)
 
 
+# ------------------------------------------------------------------------------
+# Hit reaction — an additive layer, used by rigged and static models alike
+# ------------------------------------------------------------------------------
+
+func _advance_recoil(delta: float) -> void:
+	if _recoil_left <= 0.0:
+		return
+	_recoil_left = maxf(_recoil_left - delta, 0.0)
+	var k: float = 1.0 - _recoil_left / RECOIL_TIME        # 0 at impact, 1 at rest
+
+	# A struck-and-settle impulse, not a fade. exp() gives the hard spike of the
+	# impact (peaks ~15% in) and sin() past PI carries the body back THROUGH its
+	# rest pose into a small overshoot before returning, which is what makes it
+	# read as a body absorbing a blow rather than a node being lerped. It is
+	# exactly 0 at k = 0 and ~0 at k = 1, so nothing pops on either end — and it
+	# is forced to a clean 0 on the final frame so the rest pose is exact.
+	var env: float = 0.0
+	if _recoil_left > 0.0:
+		env = exp(-k * 5.5) * sin(k * PI * 1.6) * RECOIL_GAIN
+
+	# WHERE THE OFFSET IS MEASURED FROM differs by model type, and getting this
+	# wrong accumulates drift: a static hero has just been positioned by
+	# _procedural() this same frame, so the recoil rides on top of that value; a
+	# rigged hero is moved internally by its skeleton and leaves this node at its
+	# load-time rest, so the offset is taken from the captured base.
+	var pos: Vector3 = _base_pos if is_rigged else _model.position
+	var rot: Vector3 = _base_rot if is_rigged else _model.rotation
+
+	_model.position = pos + Vector3(0.0, RECOIL_LIFT, -RECOIL_PUSH) * env
+	_model.rotation = rot + Vector3(-RECOIL_PITCH * env, 0.0, RECOIL_ROLL * env)
+	# Squash: shorter and wider, so the silhouette changes even on a frame where
+	# the lean happens to be hidden by the camera angle.
+	_model.scale = _base_scale * Vector3(
+		1.0 + RECOIL_SQUASH * 0.75 * env,
+		1.0 - RECOIL_SQUASH * env,
+		1.0 + RECOIL_SQUASH * 0.75 * env)
+
+	# The flash front-loads: full brightness at the impact, gone by the time the
+	# body is still moving. pow() sharpens the decay.
+	var fade: float = maxf(0.0, 1.0 - k / FLASH_SPAN)
+	_set_flash(pow(fade, 1.4) * FLASH_PEAK)
+
+
+## Paint every surface with an additive white overlay at `alpha`.
+##
+## `material_overlay` rather than touching the hero's own materials: the models
+## arrive from an art pipeline with 139 different material setups, and anything
+## that mutates them has to be able to put them back exactly. An overlay is
+## additive, respects skinning, and is removed by assigning null — there is no
+## state to restore and no way to corrupt a hero's appearance permanently.
+func _set_flash(alpha: float) -> void:
+	if alpha <= 0.001:
+		if _flash_on:
+			_flash_on = false
+			for mi in _meshes:
+				mi.material_overlay = null
+		return
+
+	if _flash == null:
+		_flash = StandardMaterial3D.new()
+		_flash.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_flash.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_flash.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_flash.cull_mode = BaseMaterial3D.CULL_DISABLED
+		# An additive overlay that writes depth punches a hole in whatever is
+		# drawn after it, so the hero would flash and the scenery behind them
+		# would disappear for two frames.
+		_flash.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		_flash.disable_receive_shadows = true
+
+	# Slightly warm rather than pure white — a white flash on a green biome under
+	# a warm sun reads as a missing texture.
+	_flash.albedo_color = Color(1.0, 0.92, 0.84, alpha)
+	if not _flash_on:
+		_flash_on = true
+		for mi in _meshes:
+			mi.material_overlay = _flash
+
+
 func _on_clip_finished(_name: StringName) -> void:
 	if _state in [State.IDLE, State.WALK, State.RUN]:
 		return
@@ -392,6 +593,11 @@ func _on_clip_finished(_name: StringName) -> void:
 
 ## What the animator still owes us, for whichever model is loaded. Useful as a
 ## content check once the rigged set lands.
+##
+## `hit` is on this list for all 139 heroes and that is NOT a gap any more — it
+## is covered by `flinch()`, which is additive and needs no clip. Keep reporting
+## it: tools/bundlecheck.gd asserts the list is exactly ["hit"], which is how a
+## hero that is missing a REAL clip gets caught.
 func missing_states() -> PackedStringArray:
 	var out := PackedStringArray()
 	if not is_rigged:

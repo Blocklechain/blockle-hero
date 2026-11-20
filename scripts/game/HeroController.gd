@@ -14,8 +14,11 @@ extends Node3D
 #
 # ANIMATION: this class never touches an AnimationPlayer. It tells `HeroRig`
 # which canonical state it is in and how fast it is going; the rig decides
-# whether that means a clip or the procedural stand-in. See HeroRig.gd — the
-# models are not rigged yet.
+# whether that means a clip or the procedural stand-in. See HeroRig.gd.
+#
+# The one exception is being HURT, which is not a state: `rig.flinch()` layers a
+# reaction over whatever is playing, because no hero was delivered with a `hit`
+# clip and because losing your swing every time you are grazed feels terrible.
 # ------------------------------------------------------------------------------
 
 signal arrived()
@@ -23,6 +26,17 @@ signal ability_used(slot: int)
 ## Emitted when the swing actually lands, which is when damage should resolve —
 ## not when the button was pressed.
 signal cast_landed(ability: Ability)
+
+## FOR THE HUD. `body` does not exist until setup_combat() runs, so a HUD built
+## at scene start cannot connect to `body.damaged` itself — by the time the
+## champion has a combat body the HUD has already missed its chance. These two
+## exist from construction and simply forward.
+##
+## Floating damage numbers, the health bar and the hurt vignette all read
+## `took_damage`; `champion_died` is the defeat screen's cue. Enemy numbers come
+## from `Combatant.on_spawn` instead, which sees every combatant in the game.
+signal took_damage(amount: float, crit: bool, source: String)
+signal champion_died()
 
 ## The ability waiting to resolve, set on press and consumed when it lands.
 var pending_cast: Ability = null
@@ -55,6 +69,19 @@ var _speed: float = RUN_SPEED
 var _busy_until: float = 0.0           # locked out while an ability plays
 var _facing: float = 0.0
 
+## Metres walked since the last footstep cue. Steps are fired per DISTANCE, not
+## per second, so a walk and a run both sound like the same legs at different
+## speeds instead of the walk sounding like slow motion.
+var _stride_left: float = 0.0
+const STRIDE: float = 1.05             # m between footfalls
+
+## How long the corpse is left on the ground before anything may clear it. Not
+## enforced here — the rig simply holds the last frame of its ~5.8 s death clip
+## — but the number a caller should wait for before despawning.
+const CORPSE_LINGER: float = 2.5
+
+var _dead: bool = false
+
 ## Logs the blocked-step and lost-line-of-sight branches. Off by default; both
 ## were deadlocks during development and this is how they were found.
 static var debug_stalls: bool = false
@@ -63,6 +90,13 @@ static var debug_stalls: bool = false
 func setup(t: Terrain, hero: String, at: Vector2) -> bool:
 	terrain = t
 	pathing = Pathing.new(t)
+
+	# Booted from here rather than from the scene, because this is the narrowest
+	# point every playable path goes through — the game scene and every tools/
+	# harness build their hero this way. Idempotent, and it also arms the
+	# Combatant.on_spawn hook that gives enemies their hit and death cues.
+	# `self` so it does not have to rely on Engine.get_main_loop(); see boot().
+	Audio.boot(self)
 
 	rig = HeroRig.new()
 	add_child(rig)
@@ -80,11 +114,20 @@ func setup(t: Terrain, hero: String, at: Vector2) -> bool:
 ## Give this champion a combat body and its class kit. Separate from setup()
 ## so movement can be tested without dragging in the whole combat system.
 func setup_combat(c: Combatant, cls: int, hero: String = "") -> void:
+	Audio.boot(self)
 	body = c
 	basic = Ability.basic_attack(cls)
 	# Passes the hero name, which is what gives every mage its own spellbook.
 	abilities = Ability.for_hero(hero if hero != "" else rig.hero_name, cls)
 	_cooldowns.clear()
+
+	# THE CHAMPION'S BODY IS WHERE DAMAGE AND DEATH BECOME VISIBLE. Both signals
+	# existed and neither had a listener, so taking a hit and being killed looked
+	# and sounded exactly like nothing happening.
+	if not c.damaged.is_connected(_on_body_damaged):
+		c.damaged.connect(_on_body_damaged)
+	if not c.died.is_connected(_on_body_died):
+		c.died.connect(_on_body_died)
 
 
 func ability_in_slot(slot: int) -> Ability:
@@ -110,6 +153,12 @@ func is_stunned() -> bool:
 	return body != null and body.is_stunned()
 
 
+## True once this champion has been killed. A dead champion is inert: it takes
+## no orders, runs no movement, and its rig is latched to the death clip.
+func is_dead() -> bool:
+	return _dead
+
+
 func ground_position() -> Vector2:
 	return Vector2(position.x, position.z)
 
@@ -128,7 +177,7 @@ func is_busy() -> bool:
 
 ## Walk to a world-space point. Returns false if nowhere reachable.
 func move_to(target: Vector2, run: bool = true) -> bool:
-	if is_busy():
+	if _dead or is_busy():
 		return false
 	_speed = RUN_SPEED if run else WALK_SPEED
 	var p: PackedVector2Array = pathing.find(ground_position(), target)
@@ -150,7 +199,7 @@ func stop() -> void:
 ## Use an ability. Slot 0 is the basic attack; 1-3 are the three per-hero
 ## abilities the animation pass is producing.
 func use_ability(slot: int, facing_target: Vector2 = Vector2.INF) -> bool:
-	if is_busy():
+	if _dead or is_busy():
 		return false
 	# Locked out while stunned. A stun that only slowed you would be a slow.
 	if is_stunned():
@@ -172,6 +221,10 @@ func use_ability(slot: int, facing_target: Vector2 = Vector2.INF) -> bool:
 	# The rig reports its own duration, which is the clip length once rigged and
 	# a fixed stand-in time until then — so timing stays consistent either way.
 	_busy_until = 10.0        # cleared by state_finished; a safety ceiling only
+	# The cast sounds on the PRESS even though the damage lands at the end of the
+	# clip, because the sound is the game acknowledging the button. Waiting for
+	# the swing to connect would make every tap feel like it was dropped.
+	Audio.ability(slot)
 	ability_used.emit(slot)
 	return true
 
@@ -181,6 +234,12 @@ func use_ability(slot: int, facing_target: Vector2 = Vector2.INF) -> bool:
 # ------------------------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
+	# A CORPSE DOES NOT TICK. Everything below steers, re-paths and — in the idle
+	# branch — calls rig.set_state(IDLE) every frame, which would stand the body
+	# back up one frame after it died. Status effects stop too: burning a corpse
+	# down past zero re-emits `died`.
+	if _dead:
+		return
 	if body != null:
 		body.tick(delta)
 	for k in _cooldowns.keys():
@@ -285,6 +344,14 @@ func _physics_process(delta: float) -> void:
 	_facing = atan2(dir.x, dir.y)
 	_apply_facing(delta)
 
+	# Footsteps, metered by ground covered. `step` is the distance actually moved
+	# this frame and so already carries the stun slow and every speed multiplier,
+	# which means a crawling stunned hero's footfalls slow down for free.
+	_stride_left -= step
+	if _stride_left <= 0.0:
+		_stride_left = STRIDE
+		Audio.footstep()
+
 	# A stunned champion plays WALK even when ordered to run — the drop from a
 	# run to a walk is the readable signal that something hit you, and it needs
 	# no bespoke stagger clip for 200 models.
@@ -332,6 +399,37 @@ func _on_rig_state_finished(st: int) -> void:
 			pending_cast = null
 			cast_landed.emit(ab)
 		rig.set_state(HeroRig.State.IDLE)
+
+
+# ------------------------------------------------------------------------------
+# Taking it
+# ------------------------------------------------------------------------------
+
+func _on_body_damaged(amount: float, crit: bool, source: String) -> void:
+	# flinch(), not set_state(HIT): the reaction is additive, so being hit while
+	# swinging or running shows on the body without cancelling the swing or
+	# dropping the hero out of its run cycle. A state change would do both, and
+	# the idle branch of _physics_process would overwrite it on the next frame
+	# anyway — HIT only ever survived on a hero that was standing perfectly still.
+	if rig != null:
+		rig.flinch()
+	# Forwarded for the HUD's floating numbers; the thud itself comes from the
+	# Combatant.on_spawn hook, which covers enemies too.
+	took_damage.emit(amount, crit, source)
+
+
+func _on_body_died() -> void:
+	if _dead:
+		return
+	_dead = true
+	stop()
+	_busy_until = 0.0
+	# Dropped so the end of a death clip cannot resolve the swing the hero was
+	# mid-way through when it was killed.
+	pending_cast = null
+	if rig != null:
+		rig.kill()
+	champion_died.emit()
 
 
 # ------------------------------------------------------------------------------

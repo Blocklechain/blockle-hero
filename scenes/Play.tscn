@@ -1,6 +1,18 @@
-[gd_scene load_steps=2 format=3 uid="uid://bplayscene1"]
+[gd_scene load_steps=3 format=3 uid="uid://bplayscene1"]
 
+; The region being played. Two nodes: the 3D root the world and the champion are
+; parented into, and the HUD.
+;
+; The HUD is declared here rather than built by Play.gd so that it exists on the
+; very first frame — world generation runs on a background thread and reports its
+; progress through the HUD, which is before there is a champion to bind it to.
+; Everything inside it is still built in code (see scripts/ui/Hud.gd), the same
+; way scenes/Main.tscn declares the shell's layers and UiShell.gd fills them.
 [ext_resource type="Script" path="res://scripts/game/Play.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/ui/Hud.gd" id="2"]
 
 [node name="Play" type="Node3D"]
 script = ExtResource("1")
+
+[node name="Hud" type="CanvasLayer" parent="."]
+script = ExtResource("2")

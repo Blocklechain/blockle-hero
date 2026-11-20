@@ -38,6 +38,18 @@ var crystals_since_epic: int = 0
 var crystal_seed: int = 0
 var crystals_opened: int = 0
 
+## StoreKit transaction ids that have already paid out, oldest first. THE
+## purchase invariant lives here: `Store.redeem()` refuses any id in this list,
+## so a transaction the store re-delivers — which it does for every transaction
+## until the app finishes it, and again after a reinstall — can only ever grant
+## once.
+##
+## It is in the save file rather than a side file on purpose. Two files can
+## disagree about what was paid, and that disagreement is always resolved in the
+## direction of granting twice.
+const REDEEMED_MAX: int = 500
+var redeemed_txns: PackedStringArray = PackedStringArray()
+
 ## Every hero the player may be GRANTED: starters, gem unlocks, crystal rolls
 ## and the roster screen's locked list all come from here.
 ##
@@ -186,6 +198,28 @@ func open_crystal() -> Dictionary:
 
 
 # ------------------------------------------------------------------------------
+# Purchases — the idempotency record, not the payment
+# ------------------------------------------------------------------------------
+
+func has_redeemed(transaction_id: String) -> bool:
+	return not transaction_id.is_empty() \
+		and redeemed_txns.has(transaction_id)
+
+
+## Remember that a transaction paid out. Bounded because the save file is, and
+## safe to bound because `Store` finishes a transaction the moment the save
+## succeeds: a still-unfinished one is re-delivered long before another 500
+## purchases could push it off the end.
+func mark_redeemed(transaction_id: String) -> void:
+	if transaction_id.is_empty() or redeemed_txns.has(transaction_id):
+		return
+	redeemed_txns.append(transaction_id)
+	if redeemed_txns.size() > REDEEMED_MAX:
+		redeemed_txns = redeemed_txns.slice(
+			redeemed_txns.size() - REDEEMED_MAX)
+
+
+# ------------------------------------------------------------------------------
 # Campaign
 # ------------------------------------------------------------------------------
 
@@ -262,6 +296,7 @@ func to_dict() -> Dictionary:
 		"crystal_seed": crystal_seed,
 		"crystals_opened": crystals_opened,
 		"since_epic": crystals_since_epic,
+		"iap_txns": redeemed_txns,
 	}
 
 
@@ -279,6 +314,11 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 	r.crystal_seed = int(d.get("crystal_seed", 20261119))
 	r.crystals_opened = int(d.get("crystals_opened", 0))
 	r.crystals_since_epic = int(d.get("since_epic", 0))
+	# JSON gives these back as an untyped Array of Variants, so they are copied
+	# element by element rather than assigned — a wrong-typed assignment here
+	# would silently empty the record and make every past purchase grantable.
+	for t in d.get("iap_txns", []):
+		r.redeemed_txns.append(String(t))
 	var heroes: Dictionary = d.get("owned", {})
 	for k in heroes.keys():
 		r.owned[k] = HeroProgress.from_dict(heroes[k])

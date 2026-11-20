@@ -1,3 +1,33 @@
 [gd_scene load_steps=2 format=3 uid="uid://blegends001"]
 
-[node name="Main" type="Node3D"]
+; The menu shell, and the scene the app boots into. Three nodes only: the
+; structure the shell needs and nothing it builds itself.
+;
+;   Ui      — the menus. Hidden while a region is being played.
+;   Overlay — layer 10, above both the menus and the game, so the toast and the
+;             "Menu" button are reachable while Play.tscn owns the screen.
+[ext_resource type="Script" path="res://scripts/ui/UiShell.gd" id="1"]
+
+[node name="Main" type="Node"]
+script = ExtResource("1")
+
+[node name="Ui" type="CanvasLayer" parent="."]
+
+[node name="Background" type="ColorRect" parent="Ui"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.043137, 0.043137, 0.078431, 1)
+
+[node name="Safe" type="MarginContainer" parent="Ui"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Overlay" type="CanvasLayer" parent="."]
+layer = 10

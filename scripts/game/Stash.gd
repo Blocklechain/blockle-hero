@@ -24,6 +24,12 @@ var equipped: Dictionary = {}
 ## is full, the pickup is refused rather than silently dropping the best item.
 const CAPACITY: int = 300
 
+## Flat damage for an empty weapon slot. Deliberately not zero — a champion with
+## nothing in hand should be weak, not harmless — and a named constant because
+## combat has to agree with it: Combat.champion_body() gives a champion with no
+## stash at all the same bare fists as a champion with an empty one.
+const UNARMED_POWER: float = 2.0
+
 
 func count() -> int:
 	return items.size()
@@ -55,6 +61,26 @@ func find_index(item_id: int) -> int:
 		if items[i].id == item_id:
 			return i
 	return -1
+
+
+## Is this id already spoken for anywhere in the account — loose OR worn?
+##
+## THE POOL IS ADDRESSED BY ID: equip() and Shop.sell() both take an item_id and
+## act on the first match. Two items sharing one id therefore means selling or
+## equipping the wrong piece, with no way for the player to recover it. Item ids
+## come from a 31-bit hash of (seed, roll_id), so collisions are rare rather than
+## impossible, and the acquisition path checks here before admitting a drop (see
+## Loot._make_id_unique). Worn items are included because unequipping puts one
+## straight back into the pool.
+func holds_id(item_id: int) -> bool:
+	if find_index(item_id) >= 0:
+		return true
+	for hero in equipped.keys():
+		for slot in (equipped[hero] as Dictionary).keys():
+			var it: Item = equipped[hero][slot]
+			if it != null and it.id == item_id:
+				return true
+	return false
 
 
 # ------------------------------------------------------------------------------
@@ -118,7 +144,7 @@ func gear_stats(hero: String) -> Stats:
 ## empty weapon slot should be weak, not harmless.
 func weapon_power(hero: String) -> float:
 	var it: Item = equipped_in(hero, Item.Slot.WEAPON)
-	return it.power if it != null else 2.0
+	return it.power if it != null else UNARMED_POWER
 
 
 ## Flat armour from every non-weapon piece.

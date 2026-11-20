@@ -1,0 +1,195 @@
+class_name UiGlyph
+extends Control
+# ------------------------------------------------------------------------------
+# Every symbol in the shell, drawn in code.
+#
+# WHY NOT ICON FILES: the project ships no 2D art and no emoji in UI text (see
+# the house rules), and a currency row needs a coin, a gem and a crystal that
+# are distinguishable at 48 px. Drawing them from polygons keeps them crisp at
+# any size, keeps the PCK free of nine more textures to re-import, and means
+# the app mark in the title is the SAME geometry as branding/blockle-b-icon.svg
+# rather than a screenshot of it.
+# ------------------------------------------------------------------------------
+
+enum Kind {
+	MARK,        # the Blockle hexagon, as on the app icon
+	GOLD,        # a coin
+	GEM,         # a cut gem
+	CRYSTAL,     # a spawn crystal
+	BACK,        # a left chevron
+	CHEVRON,     # a right chevron: "this row opens something"
+	PLUS,        # spend a skill point
+	CHECK,
+	SPARK,       # an upgrade is waiting in the stash
+	BLADE,       # Fighter
+	ARROW,       # Ranger
+	SIGIL,       # Mage
+}
+
+## The brand hexagon: pointed top and bottom, vertical sides. Taken from the
+## outer path of branding/blockle-b-icon.svg, normalised to a unit square.
+const HEX: PackedVector2Array = [
+	Vector2(0.50, 0.02), Vector2(0.97, 0.26), Vector2(0.97, 0.74),
+	Vector2(0.50, 0.98), Vector2(0.03, 0.74), Vector2(0.03, 0.26),
+]
+
+var kind: int = Kind.MARK:
+	set(v):
+		kind = v
+		queue_redraw()
+
+var tint: Color = HeroTheme.TEXT:
+	set(v):
+		tint = v
+		queue_redraw()
+
+
+static func make(k: int, px: float, colour: Color = HeroTheme.TEXT) -> UiGlyph:
+	var g := UiGlyph.new()
+	g.kind = k
+	g.tint = colour
+	g.custom_minimum_size = Vector2(px, px)
+	# Glyphs are decoration; the row or button underneath owns the touch.
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return g
+
+
+static func for_class(cls: int) -> int:
+	match cls:
+		HeroClass.Kind.FIGHTER: return Kind.BLADE
+		HeroClass.Kind.RANGER: return Kind.ARROW
+		_: return Kind.SIGIL
+
+
+static func for_currency(currency: int) -> int:
+	match currency:
+		Wallet.Kind.GOLD: return Kind.GOLD
+		Wallet.Kind.GEMS: return Kind.GEM
+		_: return Kind.CRYSTAL
+
+
+# ------------------------------------------------------------------------------
+
+func _draw() -> void:
+	var s: float = minf(size.x, size.y)
+	if s <= 0.0:
+		return
+	var o: Vector2 = (size - Vector2(s, s)) * 0.5
+	match kind:
+		Kind.MARK: _mark(o, s)
+		Kind.GOLD: _coin(o, s)
+		Kind.GEM: _gem(o, s)
+		Kind.CRYSTAL: _crystal(o, s)
+		Kind.BACK: _chevron(o, s, -1.0)
+		Kind.CHEVRON: _chevron(o, s, 1.0)
+		Kind.PLUS: _plus(o, s)
+		Kind.CHECK: _check(o, s)
+		Kind.SPARK: _spark(o, s)
+		Kind.BLADE: _blade(o, s)
+		Kind.ARROW: _arrow(o, s)
+		Kind.SIGIL: _sigil(o, s)
+
+
+func _poly(pts: PackedVector2Array, o: Vector2, s: float, scale: float,
+		colour: Color) -> void:
+	var out := PackedVector2Array()
+	var c := Vector2(0.5, 0.5)
+	for p in pts:
+		out.append(o + (c + (p - c) * scale) * s)
+	draw_colored_polygon(out, colour)
+
+
+func _mark(o: Vector2, s: float) -> void:
+	_poly(HEX, o, s, 1.0, tint)
+	# Punch the counter back out in the page colour, leaving a ring — the icon
+	# reads as a hollow hexagon with a waist, not a filled blob.
+	_poly(HEX, o, s, 0.60, HeroTheme.BG)
+	var waist := PackedVector2Array([
+		Vector2(0.20, 0.47), Vector2(0.80, 0.47),
+		Vector2(0.80, 0.56), Vector2(0.20, 0.56),
+	])
+	_poly(waist, o, s, 1.0, tint)
+
+
+func _coin(o: Vector2, s: float) -> void:
+	var c: Vector2 = o + Vector2(s, s) * 0.5
+	draw_circle(c, s * 0.46, tint)
+	draw_circle(c, s * 0.30, Color(tint.r, tint.g, tint.b, 0.35))
+
+
+func _gem(o: Vector2, s: float) -> void:
+	_poly(PackedVector2Array([
+		Vector2(0.50, 0.04), Vector2(0.94, 0.40),
+		Vector2(0.50, 0.96), Vector2(0.06, 0.40),
+	]), o, s, 1.0, tint)
+	# One bright facet, so a gem is not just a diamond outline.
+	_poly(PackedVector2Array([
+		Vector2(0.50, 0.04), Vector2(0.94, 0.40), Vector2(0.50, 0.40),
+	]), o, s, 1.0, Color(1, 1, 1, 0.35))
+
+
+func _crystal(o: Vector2, s: float) -> void:
+	_poly(PackedVector2Array([
+		Vector2(0.50, 0.02), Vector2(0.84, 0.30), Vector2(0.72, 0.98),
+		Vector2(0.28, 0.98), Vector2(0.16, 0.30),
+	]), o, s, 1.0, tint)
+	draw_line(o + Vector2(0.50, 0.06) * s, o + Vector2(0.50, 0.96) * s,
+		Color(1, 1, 1, 0.38), maxf(s * 0.05, 2.0))
+
+
+func _chevron(o: Vector2, s: float, dir: float) -> void:
+	var w: float = maxf(s * 0.11, 3.0)
+	var x0: float = 0.62 if dir > 0.0 else 0.38
+	var x1: float = 0.32 if dir > 0.0 else 0.68
+	draw_polyline(PackedVector2Array([
+		o + Vector2(x1, 0.22) * s, o + Vector2(x0, 0.50) * s,
+		o + Vector2(x1, 0.78) * s,
+	]), tint, w)
+
+
+func _plus(o: Vector2, s: float) -> void:
+	var t: float = s * 0.14
+	draw_rect(Rect2(o + Vector2(s * 0.5 - t * 0.5, s * 0.22),
+		Vector2(t, s * 0.56)), tint)
+	draw_rect(Rect2(o + Vector2(s * 0.22, s * 0.5 - t * 0.5),
+		Vector2(s * 0.56, t)), tint)
+
+
+func _check(o: Vector2, s: float) -> void:
+	draw_polyline(PackedVector2Array([
+		o + Vector2(0.18, 0.52) * s, o + Vector2(0.42, 0.76) * s,
+		o + Vector2(0.84, 0.26) * s,
+	]), tint, maxf(s * 0.12, 3.0))
+
+
+func _spark(o: Vector2, s: float) -> void:
+	_poly(PackedVector2Array([
+		Vector2(0.50, 0.00), Vector2(0.60, 0.40), Vector2(1.00, 0.50),
+		Vector2(0.60, 0.60), Vector2(0.50, 1.00), Vector2(0.40, 0.60),
+		Vector2(0.00, 0.50), Vector2(0.40, 0.40),
+	]), o, s, 1.0, tint)
+
+
+func _blade(o: Vector2, s: float) -> void:
+	_poly(PackedVector2Array([
+		Vector2(0.46, 0.04), Vector2(0.58, 0.16), Vector2(0.58, 0.62),
+		Vector2(0.46, 0.70),
+	]), o, s, 1.0, tint)
+	draw_rect(Rect2(o + Vector2(0.28, 0.62) * s, Vector2(0.48, 0.09) * s), tint)
+	draw_rect(Rect2(o + Vector2(0.47, 0.71) * s, Vector2(0.10, 0.25) * s), tint)
+
+
+func _arrow(o: Vector2, s: float) -> void:
+	draw_line(o + Vector2(0.14, 0.86) * s, o + Vector2(0.86, 0.14) * s, tint,
+		maxf(s * 0.09, 2.0))
+	_poly(PackedVector2Array([
+		Vector2(0.86, 0.14), Vector2(0.86, 0.46), Vector2(0.54, 0.14),
+	]), o, s, 1.0, tint)
+
+
+func _sigil(o: Vector2, s: float) -> void:
+	var c: Vector2 = o + Vector2(s, s) * 0.5
+	draw_arc(c, s * 0.40, 0.0, TAU, 40, tint, maxf(s * 0.08, 2.0))
+	_poly(PackedVector2Array([
+		Vector2(0.50, 0.22), Vector2(0.72, 0.60), Vector2(0.28, 0.60),
+	]), o, s, 1.0, tint)

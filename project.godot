@@ -15,9 +15,7 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="Blockle Hero"
-; Main.tscn is an empty Node3D placeholder, so every build booted to a blank
-; viewport and Play.tscn was never entered. The game IS Play.tscn.
-run/main_scene="res://scenes/Play.tscn"
+run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.png"
 
