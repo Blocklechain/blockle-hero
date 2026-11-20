@@ -130,11 +130,19 @@ func build() -> void:
 		navigate.emit(UiRoute.SHOP, hero))
 	nav.add_child(shop_button)
 
+	# ONE ROW, NOT TWO. Landscape gives 2532 px of width and only 1170 px of
+	# height, and the currency bar, header, footer and tab bar between them were
+	# eating enough of it that the panel above clipped mid-sentence. Three
+	# buttons fit across comfortably; a second stacked row does not fit at all.
+	# The primary action keeps twice the share, so it still reads as the one to
+	# press.
 	var go := HeroTheme.button("Take %s into the campaign"
-		% ChampionName.of(hero), HeroTheme.Btn.PRIMARY, 150)
+		% ChampionName.of(hero), HeroTheme.Btn.PRIMARY)
+	go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	go.size_flags_stretch_ratio = 2.0
 	go.pressed.connect(func() -> void:
 		navigate.emit(UiRoute.CAMPAIGN, hero))
-	footer.add_child(go)
+	nav.add_child(go)
 
 	refresh()
 
