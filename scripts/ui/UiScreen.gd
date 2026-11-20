@@ -162,6 +162,31 @@ func split_column(left: Control) -> VBoxContainer:
 	return col
 
 
+## Like split_column, but the right side does NOT scroll.
+##
+## A ScrollContainer hands its child the child's MINIMUM height, so anything
+## that scrolls itself — a VirtualList — collapses to nothing inside one. The
+## campaign's hundred-map list did exactly that and vanished. Screens whose
+## right column is a list want this; screens whose right column is prose want
+## split_column.
+func split_fixed(left: Control) -> VBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", HeroTheme.GAP * 2)
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(row)
+
+	left.custom_minimum_size = Vector2(HeroTheme.COL_W, 0)
+	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_child(left)
+
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", HeroTheme.GAP)
+	row.add_child(col)
+	return col
+
+
 ## The strip that says which champion everything on this screen applies to.
 ## Tapping it goes back to the champion list — the stash, the merchant and the
 ## campaign all act on ONE champion, and that has to be impossible to miss.

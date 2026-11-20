@@ -185,14 +185,20 @@ func _build_plate() -> void:
 		HeroTheme.BG_LIFT.b, 0.82), HeroTheme.LINE)
 	_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_plate.position = Vector2(HeroTheme.PAD, inset.x + HeroTheme.GAP)
-	# Stops short of the shell's "Menu" button, which anchors 300 px off the
-	# right edge. Overlapping it would put a quit under the player's thumb.
+	# A FIXED WIDTH, NOT A SHARE OF THE SCREEN.
+	#
+	# This was `_view().x - PAD - 340`, which was reasonable in portrait: 796 of
+	# 1170 px, about two thirds. In landscape the same expression is 2158 of
+	# 2532 — a health plate stretched across 85% of the glass, over the fight it
+	# is reporting on. The plate holds a name, a class and a bar; it needs the
+	# width of its text, not the width of the device.
 	#
 	# Width is a MINIMUM rather than a size: a PanelContainer under a plain
 	# Control sizes itself to its contents, so anything assigned to `size` is
-	# overwritten on the next layout pass and the plate collapses to the width of
-	# the longest champion name.
-	_plate.custom_minimum_size = Vector2(_view().x - HeroTheme.PAD - 340.0, 0.0)
+	# overwritten on the next layout pass and the plate collapses to the width
+	# of the longest champion name.
+	_plate.custom_minimum_size = Vector2(
+		minf(HeroTheme.COL_W, _view().x - HeroTheme.PAD - 340.0), 0.0)
 	_plate.visible = false
 	_root.add_child(_plate)
 

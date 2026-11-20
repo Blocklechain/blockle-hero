@@ -69,6 +69,19 @@ func _init() -> void:
 	_the_arena_generator_is_untouched()
 	_on_real_terrain()
 
+	# THE CAMPAIGN SCENE MUST ACTUALLY ASK FOR A LANE.
+	#
+	# Every lane test below can pass while the game still plays arenas, because
+	# the tests build their own terrain and the scene builds its own. That is
+	# exactly what happened: WorldBuilder.build() defaults to Kind.ARENA and
+	# Play.gd called it with defaults, so the entire lane feature was generated,
+	# verified and then not used. Asserting the scene's own default closes it.
+	var play: Node = (load("res://scenes/Play.tscn") as PackedScene).instantiate()
+	check("the campaign scene builds LANE maps, not arenas",
+		play.layout_kind == Terrain.Kind.LANE,
+		"Play.layout_kind = %d (LANE is %d)" % [play.layout_kind, Terrain.Kind.LANE])
+	play.free()
+
 	print("\n=== %d failure(s) ===" % fails)
 	quit(1 if fails > 0 else 0)
 

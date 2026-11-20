@@ -18,6 +18,7 @@ extends UiScreen
 var _tier: int = Campaign.Tier.NORMAL
 var _tier_buttons: Array[Button] = []
 var _tier_note: Label
+var _plate: StagePlate
 var _list: VirtualList
 var _region: int = 0
 var _enter: Button
@@ -32,32 +33,49 @@ func back_route() -> String:
 
 
 func build() -> void:
-	content.add_child(context_strip())
+	# LANDSCAPE SPLIT. Stacked, this screen gave the map list about one row of
+	# the 1170 px height — one map visible out of a hundred, with the row below
+	# it clipped. The art goes left (it is the one thing that wants a big fixed
+	# area) and the list gets the full column height on the right.
+	# THE LEFT COLUMN IS A STAGE CARD: the art, and the button that enters it.
+	# Keeping "Enter" in the footer cost a whole row of the 1170 px height, and
+	# the map list — a hundred entries — was getting about one row to show them
+	# in. It also belongs here: the picture and the way in are one thing.
+	_plate = StagePlate.new()
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", HeroTheme.GAP)
+	card.add_child(_plate)
+	var col := split_fixed(card)
+
+	col.add_child(context_strip())
 	_tier = roster.unlocked_tier
 
 	var tiers := HBoxContainer.new()
 	tiers.add_theme_constant_override("separation", 10)
-	content.add_child(tiers)
+	col.add_child(tiers)
 	var group := ButtonGroup.new()
 	# Every difficulty the campaign declares, not a hand-listed four — the eighth
 	# tier must not be unreachable because this row was never updated.
 	for tier in range(Campaign.tier_count()):
 		var b := HeroTheme.segment(Campaign.tier_name(tier), group)
-		b.add_theme_font_size_override("font_size", HeroTheme.F_SMALL)
+		# Eight names across one column, so the type has to give. These are a
+		# secondary control the player sets once a run, not something read at a
+		# glance mid-fight — "Nightmare" fitting matters more than its size.
+		b.add_theme_font_size_override("font_size", 28)
 		b.pressed.connect(_on_tier.bind(tier))
 		_tier_buttons.append(b)
 		tiers.add_child(b)
 
 	_tier_note = HeroTheme.prose("")
-	content.add_child(_tier_note)
+	col.add_child(_tier_note)
 
 	_list = VirtualList.new()
 	_list.configure(_make_row, _bind_row, 170)
-	content.add_child(_list)
+	col.add_child(_list)
 
 	_enter = HeroTheme.button("", HeroTheme.Btn.PRIMARY, 150)
 	_enter.pressed.connect(_on_enter)
-	footer.add_child(_enter)
+	card.add_child(_enter)
 
 	refresh()
 
@@ -98,6 +116,10 @@ func refresh() -> void:
 	_enter.disabled = blocked != ""
 	_enter.text = "Enter %s" % Biome.display_name(Campaign.biome_at(_region)) \
 		if blocked == "" else "Choose a difficulty you can enter"
+	# The art follows the selection, so picking down the list is a slideshow of
+	# where the campaign is taking you rather than a column of names.
+	if _plate != null:
+		_plate.show_map(_region)
 
 
 func _make_row() -> Control:

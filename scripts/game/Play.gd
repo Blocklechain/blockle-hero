@@ -57,6 +57,11 @@ extends Node3D
 ## be overwritten. See `_resolve_roster`.
 var roster: Roster = null
 
+## Which world generator this scene uses. LANE is the campaign; PvP will set
+## ARENA when it exists. Settable from outside before the scene is added, the
+## same way `biome` and `hero` are.
+var layout_kind: int = Terrain.Kind.LANE
+
 var _builder: WorldBuilder
 var _cam: ArpgCamera
 var _hero: HeroController
@@ -132,7 +137,15 @@ func _ready() -> void:
 	_builder.progress.connect(func(s: String, f: float):
 		_hud.set_message("%s  %d%%" % [s, int(f * 100.0)], true))
 	_builder.finished.connect(_on_world_ready)
-	_builder.build(world_seed, biome, maxi(region_cells, 32), 0.5)
+	# PASS THE LAYOUT KIND EXPLICITLY.
+	#
+	# WorldBuilder.build() defaults `kind` to Kind.ARENA so that callers written
+	# before lanes existed kept the map they already built — and this caller was
+	# never updated, so every campaign map was still an arena. The lane
+	# generator, the spine encounters and the dread curve were all being built
+	# and then not used by the one scene that plays them.
+	_builder.build(world_seed, biome, maxi(region_cells, 32), 0.5,
+		Layout.Sym.ASYMMETRIC, 11, layout_kind)
 
 
 ## The account loot is banked into.
