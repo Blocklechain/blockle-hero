@@ -97,9 +97,29 @@ func _one(region: int, tier: int) -> void:
 			alive == foes.size(), "%d of %d" % [alive, foes.size()])
 		check("...and one of them is a boss", boss)
 
-		# The thing the player notices: a monster that never moves.
-		check("the enemy brain is wired to the frame loop",
-			play.has_method("_think"))
+		# THE THING THE PLAYER NOTICES. "Has enemies" and "has enemies that do
+		# anything" are different games, and the second is the one being
+		# shipped. Put the champion next to the nearest foe and run the brain:
+		# it has to close the gap on its own.
+		var hero: HeroController = play.get("_hero")
+		var near: HeroController = null
+		var best: float = 1e9
+		for f in foes:
+			var d: float = f.ground_position().distance_to(
+				hero.ground_position())
+			if d < best:
+				best = d
+				near = f
+		var opened: float = near.ground_position().distance_to(
+			hero.ground_position())
+		for i in range(240):
+			play._think(0.05)
+			await physics_frame
+		var closed: float = near.ground_position().distance_to(
+			hero.ground_position())
+		check("an enemy that notices you closes the distance",
+			closed < opened - 1.0 or closed <= float(play.REACH) + 0.5,
+			"%.1f m -> %.1f m" % [opened, closed])
 
 	play.queue_free()
 	await process_frame
