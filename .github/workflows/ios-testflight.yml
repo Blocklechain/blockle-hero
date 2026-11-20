@@ -171,10 +171,20 @@ jobs:
         env:
           ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -eo pipefail
-          if [ -z "$ASC_KEY_BASE64" ] || [ -z "$ASC_KEY_ID" ]; then
-            echo "::error::ASC_KEY_BASE64 / ASC_KEY_ID are not set. Copy ASC_KEY_BASE64, ASC_KEY_ID and ASC_ISSUER_ID from the Blocklechain/blockle repo secrets."
+          # Check ALL THREE here, including the issuer id, even though it is only
+          # used two steps later. `gh secret set NAME` with no --body reads stdin,
+          # so it is easy to create a secret that EXISTS but is empty — and an
+          # empty issuer id let a full archive run (~5 min) before xcodebuild
+          # rejected the export with "-authenticationKeyIssuerID is required".
+          missing=""
+          [ -z "$ASC_KEY_BASE64" ] && missing="$missing ASC_KEY_BASE64"
+          [ -z "$ASC_KEY_ID" ]     && missing="$missing ASC_KEY_ID"
+          [ -z "$ASC_ISSUER_ID" ]  && missing="$missing ASC_ISSUER_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Empty or unset secret(s):$missing — set each with an explicit value, e.g. gh secret set ASC_ISSUER_ID --repo Blocklechain/blockle-hero --body '<uuid>'"
             exit 1
           fi
           mkdir -p ~/.appstoreconnect/private_keys
