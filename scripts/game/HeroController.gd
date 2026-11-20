@@ -71,6 +71,13 @@ var _speed: float = RUN_SPEED
 ## follower owns movement again.
 var _drive: Vector2 = Vector2.ZERO
 var _drive_run: bool = true
+
+## Displacement in progress. A charge travels over the cast; a blink is a
+## single hop resolved when the clip lands.
+var _dash_from: Vector2 = Vector2.ZERO
+var _dash_to: Vector2 = Vector2.ZERO
+var _dash_t: float = 0.0
+var _dash_time: float = 0.0
 var _busy_until: float = 0.0           # locked out while an ability plays
 var _facing: float = 0.0
 
@@ -230,6 +237,8 @@ func use_ability(slot: int, facing_target: Vector2 = Vector2.INF) -> bool:
 		pending_cast = ab
 	# The rig reports its own duration, which is the clip length once rigged and
 	# a fixed stand-in time until then — so timing stays consistent either way.
+	if ab != null and ab.move_kind != Ability.Move.NONE:
+		_begin_dash(ab, facing_target)
 	_busy_until = 10.0        # cleared by state_finished; a safety ceiling only
 	# The cast sounds on the PRESS even though the damage lands at the end of the
 	# clip, because the sound is the game acknowledging the button. Waiting for
@@ -258,6 +267,8 @@ func _physics_process(delta: float) -> void:
 
 	if _busy_until > 0.0:
 		_busy_until -= delta
+		if _dash_time > 0.0:
+			_advance_dash(delta)
 		_apply_facing(delta)
 		return
 
@@ -401,6 +412,75 @@ func drive(dir: Vector2, run: bool = true) -> void:
 ## True while the stick is held — the HUD dims the tap-to-move affordance.
 func is_driven() -> bool:
 	return _drive != Vector2.ZERO
+
+
+## Set up the displacement for an ability that has one.
+##
+## THE DESTINATION IS VALIDATED BEFORE THE CHAMPION COMMITS. A blink that lands
+## inside terrain is unrecoverable — the body is off the walk grid, pathing
+## cannot route out of it, and the player is simply stuck — so the landing is
+## walked back toward the caster until it is on walkable ground. Shortening a
+## blink is survivable; arriving inside a cliff is not.
+func _begin_dash(ab: Ability, target: Vector2) -> void:
+	var here: Vector2 = ground_position()
+	var dir: Vector2
+
+	match ab.move_kind:
+		Ability.Move.CHARGE:
+			if target == Vector2.INF:
+				dir = Vector2(sin(_facing), cos(_facing))
+			else:
+				var to: Vector2 = target - here
+				dir = to.normalized() if to.length() > 0.001 else Vector2(sin(_facing), cos(_facing))
+		Ability.Move.RETREAT:
+			dir = -Vector2(sin(_facing), cos(_facing))
+		_:
+			dir = Vector2(sin(_facing), cos(_facing))
+
+	var want: float = ab.move_distance
+	if ab.move_kind == Ability.Move.CHARGE and target != Vector2.INF:
+		# Stop at the target rather than through it: a charge that overshoots
+		# leaves the fighter past the enemy, facing away, which is the opposite
+		# of what the button was for.
+		want = minf(want, maxf(here.distance_to(target) - ATTACK_RANGE * 0.8, 0.0))
+
+	_dash_from = here
+	_dash_to = _safe_landing(here, dir, want)
+	_dash_t = 0.0
+	# A blink is instant on arrival; a charge travels. Either way it is bounded
+	# by the clip, so the body cannot still be sliding after the swing lands.
+	_dash_time = 0.0 if ab.move_kind == Ability.Move.BLINK else 0.26
+	if ab.move_kind == Ability.Move.BLINK:
+		_place(_dash_to)
+
+
+## The furthest walkable point along `dir`, stepping back toward the caster.
+func _safe_landing(from: Vector2, dir: Vector2, distance: float) -> Vector2:
+	if distance <= 0.0 or dir.length_squared() < 0.0001:
+		return from
+	var unit: Vector2 = dir.normalized()
+	var d: float = distance
+	while d > 0.5:
+		var p: Vector2 = from + unit * d
+		if pathing.is_walkable(p):
+			return p
+		d -= 0.5
+	return from
+
+
+func _advance_dash(delta: float) -> void:
+	_dash_t = minf(_dash_t + delta, _dash_time)
+	var k: float = _dash_t / maxf(_dash_time, 0.0001)
+	# Ease out: a charge leaves hard and arrives settling, which reads as weight
+	# rather than as a constant-velocity slide.
+	var eased: float = 1.0 - pow(1.0 - k, 2.2)
+	_place(_dash_from.lerp(_dash_to, eased))
+	if _dash_t >= _dash_time:
+		_dash_time = 0.0
+
+
+func _place(p: Vector2) -> void:
+	position = Vector3(p.x, terrain.height_at(p), p.y)
 
 
 func _drive_step(delta: float) -> void:

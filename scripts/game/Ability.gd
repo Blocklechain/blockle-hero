@@ -50,6 +50,25 @@ var self_magnitude: float = 0.0
 ## Fraction of the caster's max health restored.
 var heal_fraction: float = 0.0
 
+## HOW THE CASTER MOVES WHEN THIS IS USED.
+##
+## THE RIG PROVIDES EXACTLY EIGHT CLIPS, so a charge or a blink can never be a
+## fourth ability with its own animation — it has to RIDE one of the three that
+## exist. A charge plays ability_2 and travels during it; a blink plays
+## ability_3 and the champion is simply elsewhere when it ends. The clip is
+## unchanged; what changed is where the body is by the time it finishes.
+enum Move {
+	NONE,
+	CHARGE,    # travel to the target, arriving as the clip lands
+	BLINK,     # vanish and reappear, instantly, at the end of the cast
+	RETREAT,   # the same but backwards, away from what you are facing
+}
+
+var move_kind: int = Move.NONE
+## Metres. For CHARGE this is the furthest it will close; for BLINK/RETREAT the
+## distance travelled.
+var move_distance: float = 0.0
+
 var description: String = ""
 
 
@@ -125,6 +144,13 @@ static func _fighter() -> Array[Ability]:
 	cleave.description = "A wide swing. Hits everything in front."
 
 	var slam := _make("shield_slam", "Shield Slam", 2)
+	# A CHARGE, not a standing shove. The fighter's problem is reaching a ranger
+	# who is kiting them; a stun they can only land in melee solves nothing at
+	# the range the stun is needed. Travelling to the target and arriving with
+	# the blow is the same button doing both jobs, on the clip it already had.
+	slam.move_kind = Move.CHARGE
+	slam.move_distance = 9.0
+	slam.range_m = 9.0
 	slam.shape = Shape.ARC
 	slam.range_m = 2.8
 	slam.arc_degrees = 90.0
@@ -171,6 +197,11 @@ static func _ranger() -> Array[Ability]:
 	evade.shape = Shape.SELF
 	evade.cooldown = 12.0
 	evade.damage_mult = 0.0
+	# A BACKSTEP, then the speed. Haste alone asks a ranger already in melee to
+	# outrun the thing hitting them, which they lose; the distance has to come
+	# first and the speed is what keeps it.
+	evade.move_kind = Move.RETREAT
+	evade.move_distance = 6.5
 	evade.self_applies = StatusEffect.Kind.HASTE
 	evade.self_duration = 5.0
 	evade.self_magnitude = 0.55
