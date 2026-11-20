@@ -24,6 +24,10 @@ var _list: VirtualList
 var _count_label: Label
 var _crystal_button: Button
 var _odds_panel: PanelContainer
+var _preview: HeroPreview
+var _caption: Label
+var _caption_sub: Label
+var _highlight: String = ""
 
 
 func screen_title() -> String:
@@ -39,10 +43,34 @@ func back_route() -> String:
 
 
 func build() -> void:
+	# LANDSCAPE: the champion on the left, the roster on the right.
+	#
+	# Stacked, the list got whatever height was left after the mode tabs, the
+	# count, the crystal row and the tab bar — about two of 139 entries. It also
+	# gave the player no reason to scroll: a column of names tells you nothing
+	# about a champion you have not unlocked. Showing the highlighted one, alive
+	# and turning, is what makes browsing a roster worth doing.
+	_preview = HeroPreview.new()
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", HeroTheme.GAP)
+	card.add_child(_preview)
+	_caption = HeroTheme.label("", HeroTheme.F_HEAD)
+	_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_caption.clip_text = true
+	_caption.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	card.add_child(_caption)
+	_caption_sub = HeroTheme.label("", HeroTheme.F_SMALL, HeroTheme.DIM)
+	_caption_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(_caption_sub)
+	_count_label = HeroTheme.label("", HeroTheme.F_SMALL, HeroTheme.DIM)
+	_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(_count_label)
+	var col := split_fixed(card)
+
 	var group := ButtonGroup.new()
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 14)
-	content.add_child(tabs)
+	col.add_child(tabs)
 
 	var owned_tab := HeroTheme.segment("Yours", group)
 	owned_tab.button_pressed = true
@@ -53,12 +81,9 @@ func build() -> void:
 	all_tab.pressed.connect(func() -> void: _set_mode(Mode.ALL))
 	tabs.add_child(all_tab)
 
-	_count_label = HeroTheme.prose("", HeroTheme.F_SMALL, HeroTheme.DIM)
-	content.add_child(_count_label)
-
 	_list = VirtualList.new()
 	_list.configure(_make_row, _bind_row)
-	content.add_child(_list)
+	col.add_child(_list)
 
 	# --- crystals, with the odds the App Store requires before they are used --
 	_odds_panel = HeroTheme.panel(HeroTheme.BG_LIFT, HeroTheme.CRYSTAL)
@@ -72,8 +97,12 @@ func build() -> void:
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
-	footer.add_child(row)
+	card.add_child(row)
 
+	# The crystal lives UNDER THE CHAMPION, not in a full-width band across the
+	# bottom. As a footer it cost the whole screen 132px of height and the list
+	# was left showing one and a half champions out of 139 — and it belongs
+	# beside the roster anyway, since opening one is how the roster grows.
 	_crystal_button = HeroTheme.button("", HeroTheme.Btn.SECONDARY)
 	_crystal_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_crystal_button.pressed.connect(_open_crystal)
@@ -99,14 +128,20 @@ func refresh() -> void:
 	_names = _sorted_names()
 	var owned: int = roster.owned.size()
 	var known: int = roster.all_known_names().size()
-	_count_label.text = "You own %d of %d champions. Levels and skill points " \
-		% [owned, known] \
-		+ "belong to each champion alone — only the stash and your currencies " \
-		+ "are shared."
+	# One line, not a paragraph. The rule it used to explain — that levels and
+	# skill points belong to each champion while the stash is shared — is on the
+	# champion sheet, where it matters at the moment you are spending a point.
+	_count_label.text = "%d of %d owned" % [owned, known]
 	if _list != null:
 		_list.set_count(_names.size())
+	# The preview shows whichever champion the list is headed by, so the left
+	# column is never an empty box and browsing has something to browse.
+	_show(_highlight if _highlight != "" else (
+		_names[0] if not _names.is_empty() else ""))
 	var crystals: int = roster.wallet.balance(Wallet.Kind.CRYSTALS)
-	_crystal_button.text = "Open a Spawn Crystal (%d)" % crystals
+	# Short enough to survive the narrow column. The old label clipped its own
+	# count off the end, which is the one part of it the player needs.
+	_crystal_button.text = "Spawn Crystal · %d" % crystals
 	_crystal_button.disabled = crystals <= 0
 
 
@@ -148,10 +183,10 @@ func _bind_row(node: Control, i: int) -> void:
 			"%s · %s" % [Champion.rarity_name(id), p.class_name_str()],
 			"L %d" % p.level, rarity_colour, UiGlyph.for_class(p.hero_class),
 			"%d skill point%s to spend" % [pts, "" if pts == 1 else "s"] if pts > 0 else "")
-		row.title_colour(HeroTheme.TEXT)
+		row.title_colour(HeroTheme.ACCENT if id == _highlight else HeroTheme.TEXT)
 		row.value_colour(HeroTheme.TEXT)
 		row.note_colour(HeroTheme.ACCENT)
-		row.show_chevron(true)
+		row.show_chevron(id == _highlight)
 		return
 
 	# Locked: the gem price is the action, and it says why it is refused rather
@@ -165,7 +200,7 @@ func _bind_row(node: Control, i: int) -> void:
 		"", rarity_colour, UiGlyph.for_class(cls),
 		"%d gems — you have %d" % [cost, gems],
 		PackedStringArray(["Unlock"]))
-	row.title_colour(HeroTheme.DIM)
+	row.title_colour(HeroTheme.ACCENT if id == _highlight else HeroTheme.DIM)
 	row.note_colour(HeroTheme.GEM if gems >= cost else HeroTheme.FAINT)
 	row.set_action_disabled(0, gems < cost)
 	row.show_chevron(false)
@@ -175,6 +210,15 @@ func _on_row(i: int) -> void:
 	if i < 0 or i >= _names.size():
 		return
 	var id: String = _names[i]
+	# TAP TO LOOK, TAP AGAIN TO OPEN. A roster of 139 is browsed, not picked
+	# off a menu: the first tap puts the champion in the preview so you can see
+	# what you are considering, and only the second commits. It also means a
+	# LOCKED champion is viewable — seeing the thing is the whole argument for
+	# spending the gems on it.
+	if id != _highlight:
+		_show(id)
+		_list.rebind()
+		return
 	if roster.owns(id):
 		navigate.emit(UiRoute.SHEET, id)
 	else:
@@ -208,3 +252,19 @@ func _open_crystal() -> void:
 			% [ChampionName.of(id), Champion.rarity_name(id),
 				HeroClass.display_name(HeroClass.for_hero(id))])
 	mutated()
+
+
+## Put `id` in the preview. Called on refresh and whenever a row is touched, so
+## tapping down the roster turns it into a gallery rather than a list of names.
+func _show(id: String) -> void:
+	if id == "" or _preview == null:
+		return
+	_highlight = id
+	_preview.show_hero(id)
+	_caption.text = ChampionName.of(id)
+	_caption.add_theme_color_override("font_color", Champion.colour(id))
+	var p: HeroProgress = roster.progress(id)
+	var cls: int = HeroClass.for_hero(id)
+	_caption_sub.text = "%s · %s · %s" % [
+		Champion.rarity_name(id), HeroClass.display_name(cls),
+		("level %d" % p.level) if p != null else "locked"]

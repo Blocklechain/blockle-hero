@@ -119,27 +119,18 @@ func build() -> void:
 	var nav := HBoxContainer.new()
 	nav.add_theme_constant_override("separation", 14)
 	footer.add_child(nav)
-	var stash_button := HeroTheme.button("Stash", HeroTheme.Btn.SECONDARY)
-	stash_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stash_button.pressed.connect(func() -> void:
-		navigate.emit(UiRoute.STASH, hero))
-	nav.add_child(stash_button)
-	var shop_button := HeroTheme.button("Merchant", HeroTheme.Btn.SECONDARY)
-	shop_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	shop_button.pressed.connect(func() -> void:
-		navigate.emit(UiRoute.SHOP, hero))
-	nav.add_child(shop_button)
-
-	# ONE ROW, NOT TWO. Landscape gives 2532 px of width and only 1170 px of
-	# height, and the currency bar, header, footer and tab bar between them were
-	# eating enough of it that the panel above clipped mid-sentence. Three
-	# buttons fit across comfortably; a second stacked row does not fit at all.
-	# The primary action keeps twice the share, so it still reads as the one to
-	# press.
+	# STASH AND MERCHANT ARE NOT HERE. They were, as two secondary buttons —
+	# directly above a permanent tab bar whose second and third tabs are Stash
+	# and Merchant and go to the same two places. Offering the same destination
+	# twice in two visually different controls teaches the player that the two
+	# rows mean different things, and costs a row of height to do it.
+	#
+	# What is left is the one action the tab bar CANNOT do: this screen knows
+	# which champion you are looking at, so it is the only place that can send
+	# that champion into the campaign.
 	var go := HeroTheme.button("Take %s into the campaign"
 		% ChampionName.of(hero), HeroTheme.Btn.PRIMARY)
 	go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	go.size_flags_stretch_ratio = 2.0
 	go.pressed.connect(func() -> void:
 		navigate.emit(UiRoute.CAMPAIGN, hero))
 	nav.add_child(go)

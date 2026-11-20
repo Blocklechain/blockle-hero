@@ -38,19 +38,25 @@ func back_route() -> String:
 func build() -> void:
 	content.add_child(context_strip())
 
+	# THE GEAR GOES ON THE RIGHT, THE EXPLANATION ON THE LEFT.
+	#
+	# Stacked, the "what your gear is doing" panel asked for 700 px of a 1170 px
+	# screen before anything else was measured, so opening the Stash showed the
+	# player a paragraph about gear and not one item. It is reference material —
+	# useful while you compare two swords, worthless as the thing you see
+	# instead of the swords.
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size = Vector2(0, 700)
-	content.add_child(scroll)
 	_summary = VBoxContainer.new()
 	_summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_summary.add_theme_constant_override("separation", HeroTheme.GAP)
 	scroll.add_child(_summary)
+	var col := split_fixed(scroll)
 
 	var group := ButtonGroup.new()
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 14)
-	content.add_child(tabs)
+	col.add_child(tabs)
 	var worn_tab := HeroTheme.segment("Worn", group)
 	worn_tab.button_pressed = true
 	worn_tab.pressed.connect(func() -> void: _set_tab(Tab.EQUIPPED))
@@ -64,7 +70,7 @@ func build() -> void:
 	_worn_scroll = ScrollContainer.new()
 	_worn_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_worn_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content.add_child(_worn_scroll)
+	col.add_child(_worn_scroll)
 	_equipped_box = VBoxContainer.new()
 	_equipped_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_equipped_box.add_theme_constant_override("separation", 12)
@@ -73,7 +79,7 @@ func build() -> void:
 	_pool_list = VirtualList.new()
 	_pool_list.configure(_make_row, _bind_pool_row)
 	_pool_list.visible = false
-	content.add_child(_pool_list)
+	col.add_child(_pool_list)
 
 	_auto = HeroTheme.button("", HeroTheme.Btn.PRIMARY)
 	_auto.pressed.connect(_on_auto_equip)

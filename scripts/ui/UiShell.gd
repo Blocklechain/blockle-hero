@@ -262,6 +262,20 @@ func _launch(arg: Variant) -> void:
 	# the bare id instead and map 100 is lit exactly like map 1.
 	_play.set("biome", Biome.tag(Campaign.biome_at(region), Campaign.dread(region)))
 	_play.set("hero", who)
+	# WHICH MAP, WHICH CAMPAIGN, WHICH DIFFICULTY, WHICH LEVEL. Without these
+	# Play falls back to map 0 of campaign 0 at tier Normal — and since the map
+	# index drives the cast, the pack count and the boss, every region in the
+	# game would be populated as though it were the first one.
+	_play.set("region_index", region)
+	_play.set("campaign_seed", roster.crystal_seed)
+	# The tier is in the launch payload and always has been — the campaign
+	# screen puts it there. It was simply never read, so every difficulty the
+	# player picked was played on Normal.
+	_play.set("tier", clampi(int(spec.get("tier", Campaign.Tier.NORMAL)),
+		0, Campaign.tier_count() - 1))
+	var prog: HeroProgress = roster.progress(who)
+	if prog != null:
+		_play.set("champion_level", prog.level)
 	add_child(_play)
 
 	_ui.visible = false

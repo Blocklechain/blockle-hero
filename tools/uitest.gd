@@ -274,7 +274,10 @@ func _champion_select(heroes: PackedStringArray) -> void:
 		if t.findn("Spawn Crystal odds") >= 0:
 			odds_shown = true
 	check("  the disclosure text is the published one", odds_shown)
-	check("a crystal can be opened", _press(screen, "Open a Spawn Crystal"))
+	# Matched on "Spawn Crystal ·", the separator included: the button now reads
+	# "Spawn Crystal · 5" so that its count survives the narrow column, and a
+	# looser match would also hit the "Odds" disclosure text beside it.
+	check("a crystal can be opened", _press(screen, "Spawn Crystal ·"))
 	await _settle()
 	check("  the crystal was spent",
 		r.wallet.balance(Wallet.Kind.CRYSTALS) == crystals_before - 1,

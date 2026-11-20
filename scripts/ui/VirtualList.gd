@@ -82,6 +82,7 @@ func _relayout() -> void:
 func _sync(force: bool) -> void:
 	if _factory.is_null() or _binder.is_null():
 		return
+	var grew: bool = false
 	var step: int = _step()
 	var width: float = maxf(_content.size.x, size.x - 8.0)
 	# One row above and one below the viewport, so a fast flick never shows a
@@ -110,3 +111,16 @@ func _sync(force: bool) -> void:
 		if force or _showing[k] != idx:
 			_showing[k] = idx
 			_binder.call(row, idx)
+		# A recycled row is one height for every entry, but what goes IN a row
+		# varies — some entries carry a third line, some do not. Take the step
+		# from the tallest row actually bound rather than assuming ROW_H fits
+		# everything, or that third line draws over the entry below it.
+		var need: int = int(ceil(row.get_combined_minimum_size().y))
+		if need > row_height:
+			row_height = need
+			grew = true
+
+	if grew:
+		# One re-run at the new step. Guarded by the height only ever rising,
+		# so this cannot ping-pong.
+		_sync(true)

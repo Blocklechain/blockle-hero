@@ -41,6 +41,16 @@ extends Node3D
 ## what a kill is allowed to drop — see Campaign.gd.
 @export var tier: int = Campaign.Tier.NORMAL
 
+## WHICH MAP THIS IS, and the campaign it belongs to.
+##
+## Encounter.build() needs both: the map index picks the cast, the pack count,
+## the elite rate and how far down the lane the boss stands, and the campaign
+## seed is what makes map 7 of YOUR campaign the same map every time you play
+## it. Neither was ever passed, which is the whole reason a campaign map was
+## empty — the encounter builder was complete, tested and never called.
+@export var region_index: int = 0
+@export var campaign_seed: int = 0
+
 ## Region size in walk cells, at 0.5 m each. 384 is the shipping figure (192 m
 ## of ground, about four seconds of generation); it is an export only so a
 ## headless harness can ask for a small region and still exercise the real
@@ -217,6 +227,10 @@ func _on_world_ready(root: Node3D, ter: Terrain, plan: Layout) -> void:
 	_hud.bind_champion(_hero, _cam)
 	_hud.set_message("Drag anywhere on the left to move. The keys on the right are your four actions. Pinch to zoom.")
 
+	# AFTER the champion exists: every spawn is placed relative to where the
+	# player stands, so this cannot run before `at` is a real position.
+	_populate(ter, plan, at, pick)
+
 	var rigged: String = "rigged" if _hero.rig.is_rigged else "STATIC (procedural stand-in)"
 	print("hero '%s': %s" % [pick, rigged])
 	if _hero.rig.is_rigged:
@@ -244,6 +258,115 @@ func _give_combat_body(name: String) -> void:
 	_loot.champion_level = body.level
 	_hero.setup_combat(body, cls, name)
 	_hero.cast_landed.connect(_on_cast_landed)
+
+
+# ------------------------------------------------------------------------------
+# Populating the region
+# ------------------------------------------------------------------------------
+
+## How far an enemy will notice the champion and come for them, in metres.
+## Generous enough that walking into a pack starts a fight, short enough that
+## the whole map does not converge on the player at once.
+const AGGRO: float = 18.0
+## A boss holds its ground at the end of the lane until you are close.
+const AGGRO_BOSS: float = 26.0
+## How close an enemy wants to be before it swings.
+const REACH: float = 2.6
+## Re-think this often, in seconds. Enemies do not need a decision every frame,
+## and 139 rigs asking the pathfinder sixty times a second does not ship.
+const THINK: float = 0.35
+
+var _brain_t: float = 0.0
+
+
+## Put the map's encounters in the world.
+##
+## THE SEAM THAT WAS NEVER CLOSED. Encounter.build() and Encounter.body_for()
+## were both written, both unit-tested and both unreachable: nothing in the
+## playable scene called either, so every campaign map generated its lane, its
+## packs and its boss and then loaded an empty region. A test that exercises a
+## generator proves the generator works, not that the game uses it.
+func _populate(ter: Terrain, plan: Layout, player_at: Vector2,
+		player_hero: String) -> void:
+	var playable: PackedStringArray = HeroRig.animated_heroes()
+	if playable.is_empty():
+		return
+	var pathing := Pathing.new(ter)
+	var spawns: Array = Encounter.build(region_index, tier, campaign_seed,
+		playable, player_hero, pathing, player_at, plan)
+
+	var made: int = 0
+	for s in spawns:
+		var spawn := s as Encounter.Spawn
+		if spawn == null:
+			continue
+		var foe := HeroController.new()
+		add_child(foe)
+		if not foe.setup(ter, spawn.hero, spawn.at):
+			# A hero whose model will not load is skipped, not fatal: one bad
+			# rig must not empty the rest of the map.
+			foe.queue_free()
+			continue
+		# Bosses and elites read as dangerous by being BIGGER. It is the one
+		# cue that survives a small screen with a thumb over half of it.
+		foe.scale = Vector3.ONE * spawn.size
+		foe.setup_combat(Encounter.body_for(spawn, tier),
+			spawn.cls, spawn.hero)
+		foe.cast_landed.connect(_on_enemy_cast.bind(foe))
+		add_enemy(foe.body, foe)
+		made += 1
+
+	print("region %d tier %d: %d enemies" % [region_index, tier, made])
+	if made == 0:
+		# Loud, because an empty map is the exact failure this function exists
+		# to end and it is invisible from inside the game.
+		push_warning("Encounter.build placed nothing for region %d"
+			% region_index)
+
+
+## Enemies decide what to do, a few times a second.
+func _think(delta: float) -> void:
+	if _hero == null or _hero.is_dead():
+		return
+	_brain_t -= delta
+	if _brain_t > 0.0:
+		return
+	_brain_t = THINK
+
+	var here: Vector2 = _hero.ground_position()
+	for n in _enemy_nodes:
+		var foe := n as HeroController
+		if foe == null or foe.is_dead() or foe.body == null:
+			continue
+		if foe.is_busy() or foe.is_stunned():
+			continue
+		var at: Vector2 = foe.ground_position()
+		var gap: float = at.distance_to(here)
+		var notice: float = AGGRO_BOSS if foe.scale.y >= Encounter.BOSS_SIZE \
+			else AGGRO
+		if gap > notice:
+			continue
+		if gap <= REACH:
+			foe.stop()
+			foe.use_ability(0, here)
+		elif not foe.is_moving():
+			foe.move_to(here, true)
+
+
+## An enemy's swing lands. Same resolution path as the champion's, with the
+## champion as the only possible target — without this enemies would animate
+## attacks that never did anything, which looks exactly like a broken game.
+func _on_enemy_cast(ability: Ability, foe: HeroController) -> void:
+	if foe == null or foe.body == null or _hero == null or _hero.body == null:
+		return
+	var ctx := Combat.Context.new()
+	ctx.caster = foe.body
+	ctx.origin = foe.ground_position()
+	ctx.facing = foe.rotation.y
+	var targets: Array[Combatant] = [_hero.body]
+	ctx.targets = targets
+	ctx.positions = PackedVector2Array([_hero.ground_position()])
+	Combat.cast(ability, ctx)
 
 
 # ------------------------------------------------------------------------------
@@ -535,13 +658,14 @@ func _use(slot: int) -> void:
 	_hero.use_ability(slot, _aim_point())
 
 
-func _process(_d: float) -> void:
+func _process(d: float) -> void:
 	# Held finger: keep re-issuing toward where it is now, so dragging steers
 	# rather than requiring a tap per step. Re-pathing every frame would be
 	# wasteful, so only when the target has moved meaningfully.
 	if _holding and _hero != null and not _hero.is_busy():
 		if not _hero.is_moving():
 			_order_move(_hold_at)
+	_think(d)
 
 
 func _order_move(screen: Vector2) -> void:

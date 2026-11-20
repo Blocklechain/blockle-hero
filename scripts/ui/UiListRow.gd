@@ -32,6 +32,7 @@ var _value: Label
 var _chevron: UiGlyph
 var _actions: Array[Button] = []
 var _edge: Color = HeroTheme.LINE
+var _pad: MarginContainer
 
 
 func _init() -> void:
@@ -41,6 +42,7 @@ func _init() -> void:
 	_restyle(HeroTheme.LINE)
 
 	var pad := MarginContainer.new()
+	_pad = pad
 	pad.set_anchors_preset(Control.PRESET_FULL_RECT)
 	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pad.add_theme_constant_override("margin_left", 34)
@@ -124,6 +126,20 @@ func configure(title: String, subtitle: String, value: String, edge: Color,
 	_subtitle.text = subtitle
 	_note.text = note
 	_note.visible = note != ""
+	# HOW TALL THIS ROW HAS TO BE, decided here because nothing else will.
+	#
+	# Two separate things conspire. The pad is ANCHORED inside the row rather
+	# than laid out by a container, so its height never reaches the row's
+	# minimum on its own. And a script `_get_minimum_size()` is useless here:
+	# this extends Button, and Button overrides get_minimum_size() in C++
+	# without consulting the script virtual — an override on this class is
+	# simply never called, and silently returns the old 150 forever.
+	#
+	# So write the number into custom_minimum_size, which Godot combines by
+	# taking the larger. Without it the third line — the one that says a better
+	# item is waiting — was drawn straight over the row beneath.
+	custom_minimum_size.y = maxf(float(HeroTheme.ROW_H),
+		_pad.get_combined_minimum_size().y)
 	_value.text = value
 	_value.visible = value != ""
 
