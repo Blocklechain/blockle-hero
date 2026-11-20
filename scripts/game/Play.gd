@@ -75,6 +75,16 @@ var _hold_at: Vector2 = Vector2.ZERO
 ## is still giving.
 var _hold_index: int = -1
 
+## The movement stick, and the live touches NOT claimed by it or the HUD.
+##
+## Pinch needs two fingers that are genuinely free: the stick owns one and the
+## ability keys own others, so pinching while walking must not be read as the
+## stick jumping across the screen. Tracking position by index is what keeps
+## the three input sources from stealing each other's fingers.
+var _stick: Joystick = null
+var _free_touches: Dictionary = {}        # index -> Vector2
+var _pinch_prev: float = -1.0
+
 ## Everything hostile in the region, and the node each one is drawn at.
 ##
 ## THE ENCOUNTER SEAM. Nothing spawns enemies yet; when something does, it calls
@@ -104,6 +114,15 @@ func _ready() -> void:
 		_hud.name = "Hud"
 		add_child(_hud)
 	_hud.action.connect(_on_hud_action)
+
+	# Added ABOVE the HUD in draw order but below it in input priority: the
+	# stick runs in _input (which sees events before _unhandled_input) yet only
+	# consumes presses inside its own zone, so the ability keys on the right
+	# keep working while a thumb is on the stick.
+	_stick = Joystick.new()
+	_stick.name = "Joystick"
+	_stick.moved.connect(_on_stick)
+	add_child(_stick)
 
 	_account = _resolve_roster()
 	_build_loot_ground()
@@ -183,7 +202,7 @@ func _on_world_ready(root: Node3D, ter: Terrain, plan: Layout) -> void:
 	# until this point — orbs dropped before it simply wait, which is correct.
 	_loot.follow = _hero
 	_hud.bind_champion(_hero, _cam)
-	_hud.set_message("Tap to move. The keys on the right are your four actions.")
+	_hud.set_message("Drag anywhere on the left to move. The keys on the right are your four actions. Pinch to zoom.")
 
 	var rigged: String = "rigged" if _hero.rig.is_rigged else "STATIC (procedural stand-in)"
 	print("hero '%s': %s" % [pick, rigged])
@@ -379,6 +398,18 @@ func _unhandled_input(e: InputEvent) -> void:
 	if _hero == null:
 		return
 
+	# THE STICK GETS FIRST REFUSAL. It runs in _input and consumes what it
+	# claims, so a press that becomes a stick never reaches here — but the
+	# zone test is repeated because iOS synthesises a mouse event from every
+	# touch and a synthesised event takes its own path through the stack.
+	if _stick != null and e is InputEventScreenTouch \
+		and (e as InputEventScreenTouch).pressed \
+		and _stick.claims((e as InputEventScreenTouch).position):
+		return
+
+	if _track_pinch(e):
+		return
+
 	if e is InputEventScreenTouch or e is InputEventMouseButton:
 		if e is InputEventMouseButton:
 			var mb := e as InputEventMouseButton
@@ -412,6 +443,66 @@ func _unhandled_input(e: InputEvent) -> void:
 			KEY_3: _use(2)
 			KEY_4: _use(3)
 			KEY_ESCAPE: get_tree().quit()
+
+
+## Track the fingers nobody else claimed and turn two of them into zoom.
+##
+## Returns true when the event was a pinch and must not also be read as a tap.
+## A two-finger gesture that also issued a move order would have the champion
+## sprint off every time the player adjusted the camera.
+func _track_pinch(e: InputEvent) -> bool:
+	if e is InputEventScreenTouch:
+		var t2 := e as InputEventScreenTouch
+		var claimed: bool = (_stick != null and _stick.is_active() \
+			and not _free_touches.has(t2.index) and _stick.claims(t2.position)) \
+			or (_hud != null and _hud.blocks_point(t2.position))
+		if t2.pressed:
+			if not claimed:
+				_free_touches[t2.index] = t2.position
+		else:
+			_free_touches.erase(t2.index)
+		# Releasing a finger ends the gesture; the next pair starts fresh rather
+		# than measuring against a span from two fingers ago and snapping.
+		if _free_touches.size() < 2:
+			_pinch_prev = -1.0
+		return false
+
+	if e is InputEventScreenDrag:
+		var d := e as InputEventScreenDrag
+		if not _free_touches.has(d.index):
+			return false
+		_free_touches[d.index] = d.position
+		if _free_touches.size() < 2:
+			return false
+		var pts: Array = _free_touches.values()
+		var span: float = (pts[0] as Vector2).distance_to(pts[1] as Vector2)
+		if span < 1.0:
+			return true
+		if _pinch_prev > 0.0 and _cam != null:
+			# Fingers apart = zoom IN (the world grows), which is the gesture
+			# every photo viewer has taught; distance grows, so the camera
+			# distance must shrink.
+			_cam.pinch(_pinch_prev / span)
+		_pinch_prev = span
+		return true
+
+	return false
+
+
+## The stick moved. Screen space in, world space out.
+##
+## ROTATED BY THE CAMERA'S YAW, not used raw. ArpgCamera holds a fixed 35-degree
+## yaw and deliberately never turns, so screen-up is not world-north; feeding
+## the raw vector to drive() sends the champion off at an angle to the thumb,
+## which feels like drift and is the single most common bug in a stick like
+## this. Screen -y (up) must become "away from the camera".
+func _on_stick(dir: Vector2) -> void:
+	if _hero == null or _hero.is_dead():
+		return
+	if dir == Vector2.ZERO:
+		_hero.drive(Vector2.ZERO)
+		return
+	_hero.drive(ArpgCamera.stick_to_world(dir), _stick.wants_run())
 
 
 func _release() -> void:
