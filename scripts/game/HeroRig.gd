@@ -276,7 +276,12 @@ func load_hero(hero: String) -> bool:
 	_base_scale = _model.scale
 	_collect_meshes(scene)
 
-	set_state(State.IDLE)
+	# FORCED. `_state` already reads IDLE on a fresh rig, so an unforced
+	# call matches the early-out in set_state and returns without ever
+	# reaching _anim.play(): the champion stands in its bind pose until
+	# something else moves it, and a menu preview that only ever wants an
+	# idle never animates at all.
+	set_state(State.IDLE, true)
 	return true
 
 

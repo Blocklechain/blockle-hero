@@ -45,7 +45,8 @@ var _toast_label: Label
 var _toast_timer: Timer
 
 var _play: Node = null
-var _leave: Button = null
+var _leave: Button
+var _bag: Button = null
 
 
 func _ready() -> void:
@@ -185,6 +186,15 @@ func _go(route: String, arg: Variant = null) -> void:
 	_screen.state_changed.connect(_on_state_changed)
 	_screen.notified.connect(toast)
 	_host.add_child(_screen)
+	# FILL THE HOST, EXPLICITLY, AFTER PARENTING.
+	#
+	# UiScreen._ready() calls set_anchors_preset(FULL_RECT), which sets the
+	# anchors and leaves the OFFSETS alone — so the screen stayed 0x0 inside a
+	# 2464x872 host and every container under it fell back to its own minimum
+	# width. The symptom was the entire menu squeezed into a ~420 px column on
+	# a 2532 px-wide screen, with the champion list collapsed to nothing.
+	# set_anchors_AND_OFFSETS_preset is the one that actually resizes.
+	_screen.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	var chrome: bool = route != UiRoute.TITLE
 	_bar.visible = chrome
@@ -263,8 +273,63 @@ func _launch(arg: Variant) -> void:
 	_leave.offset_bottom = 80 + HeroTheme.TAP
 	_leave.pressed.connect(_return_to_menu)
 	_overlay.add_child(_leave)
+
+	# INVENTORY, REACHABLE FROM THE RUN. Loot drops mid-fight and the whole
+	# point of a pooled stash is swapping gear when you find it; making the
+	# player abandon the map to equip what just dropped is the kind of friction
+	# that turns a loot game into an errand.
+	_bag = HeroTheme.button("Inventory", HeroTheme.Btn.GHOST, HeroTheme.TAP)
+	_bag.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_bag.offset_left = -640
+	_bag.offset_right = -320
+	_bag.offset_top = 80
+	_bag.offset_bottom = 80 + HeroTheme.TAP
+	_bag.pressed.connect(_open_inventory)
+	_overlay.add_child(_bag)
 	toast("%s — %s" % [ChampionName.of(who),
 		Campaign.region_title(region)])
+
+
+## Open the stash without ending the run.
+##
+## THE RUN IS FROZEN, NOT LEFT. process_mode DISABLED stops the champion, the
+## enemies, the cooldowns and the status ticks together — reading your bags
+## while a boss keeps swinging is not a pause, it is a punishment. The map and
+## its 580 MiB of loaded models stay exactly as they were, so coming back is
+## instant rather than a regenerate.
+func _open_inventory() -> void:
+	if _play == null:
+		return
+	_play.process_mode = Node.PROCESS_MODE_DISABLED
+	_play.visible = false
+	_ui.visible = true
+	if _bag != null:
+		_bag.visible = false
+	if _leave != null:
+		_leave.text = "Resume"
+		# Disconnect the quit and re-point it: the same button must not both
+		# resume a frozen run and abandon it depending on state nobody can see.
+		if _leave.pressed.is_connected(_return_to_menu):
+			_leave.pressed.disconnect(_return_to_menu)
+		if not _leave.pressed.is_connected(_resume_run):
+			_leave.pressed.connect(_resume_run)
+	goto(UiRoute.STASH)
+
+
+func _resume_run() -> void:
+	if _play == null:
+		return
+	_ui.visible = false
+	_play.visible = true
+	_play.process_mode = Node.PROCESS_MODE_INHERIT
+	if _bag != null:
+		_bag.visible = true
+	if _leave != null:
+		_leave.text = "Menu"
+		if _leave.pressed.is_connected(_resume_run):
+			_leave.pressed.disconnect(_resume_run)
+		if not _leave.pressed.is_connected(_return_to_menu):
+			_leave.pressed.connect(_return_to_menu)
 
 
 func _return_to_menu() -> void:
@@ -278,6 +343,9 @@ func _return_to_menu() -> void:
 	if _leave != null:
 		_leave.queue_free()
 		_leave = null
+	if _bag != null:
+		_bag.queue_free()
+		_bag = null
 	_ui.visible = true
 	_bar.refresh()
 	if _screen != null:

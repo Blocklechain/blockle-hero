@@ -43,7 +43,7 @@ var _title_label: Label
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var col := VBoxContainer.new()
-	col.set_anchors_preset(Control.PRESET_FULL_RECT)
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	col.add_theme_constant_override("separation", HeroTheme.GAP)
 	add_child(col)
 
@@ -68,6 +68,7 @@ func _ready() -> void:
 	header.visible = wants_header()
 
 	content = VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", HeroTheme.GAP)
 	col.add_child(content)
@@ -123,8 +124,37 @@ func set_title(text: String) -> void:
 func scroll_column() -> VBoxContainer:
 	var sc := ScrollContainer.new()
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(sc)
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", HeroTheme.GAP)
+	sc.add_child(col)
+	return col
+
+
+## A LANDSCAPE SPLIT: something fixed on the left, a scrolling column right.
+##
+## The menus were authored as one narrow centred column, which is a portrait
+## shape. In a 2532 px-wide viewport that wastes two thirds of the glass and
+## pushes the content the player came for off the bottom of a 1170 px-tall
+## screen. Returns the scrolling column; the caller fills `left` itself.
+func split_column(left: Control) -> VBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", HeroTheme.GAP * 2)
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.add_child(row)
+
+	left.custom_minimum_size = Vector2(HeroTheme.COL_W, 0)
+	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_child(left)
+
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_child(sc)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", HeroTheme.GAP)

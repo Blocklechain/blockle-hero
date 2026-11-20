@@ -31,6 +31,7 @@ var _attr_plus: Dictionary = {}        # attr -> Button
 var _derived: Dictionary = {}          # key -> Label
 var _respec: Button
 var _gear_line: Label
+var _preview: HeroPreview
 
 
 func screen_title() -> String:
@@ -42,7 +43,16 @@ func back_route() -> String:
 
 
 func build() -> void:
-	var col := scroll_column()
+	# THE LOADOUT VIEW: the champion on the left, their numbers on the right.
+	# Gear is deliberately invisible on the champion in play — it moves stats,
+	# not the silhouette — so this screen carries that weight, and seeing the
+	# actual body the player is about to walk out with anchors the numbers to
+	# something. The preview is a live HeroRig, not a portrait; see
+	# HeroPreview.gd for why 139 pre-rendered portraits were not the answer.
+	_preview = HeroPreview.new()
+	_preview.show_hero(hero)
+	var col := split_column(_preview)
+
 	var p: HeroProgress = roster.progress(hero)
 	if p == null:
 		col.add_child(HeroTheme.prose(
