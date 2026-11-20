@@ -51,7 +51,19 @@ func build() -> void:
 	_summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_summary.add_theme_constant_override("separation", HeroTheme.GAP)
 	scroll.add_child(_summary)
-	var col := split_fixed(scroll)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	# The auto-equip button goes under the summary it acts on, not in a
+	# full-width band across the bottom: as a footer it cost BOTH columns a row
+	# of height, and what it does — "equip the best in every slot" — is exactly
+	# what the numbers above it are showing.
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", HeroTheme.GAP)
+	card.add_child(scroll)
+	_auto = HeroTheme.button("", HeroTheme.Btn.PRIMARY)
+	_auto.pressed.connect(_on_auto_equip)
+	card.add_child(_auto)
+	var col := split_fixed(card)
 
 	var group := ButtonGroup.new()
 	var tabs := HBoxContainer.new()
@@ -81,9 +93,6 @@ func build() -> void:
 	_pool_list.visible = false
 	col.add_child(_pool_list)
 
-	_auto = HeroTheme.button("", HeroTheme.Btn.PRIMARY)
-	_auto.pressed.connect(_on_auto_equip)
-	footer.add_child(_auto)
 
 	refresh()
 
@@ -152,8 +161,11 @@ func refresh() -> void:
 	_worn_scroll.visible = _tab == Tab.EQUIPPED
 
 	var upgrades: int = roster.stash.all_upgrades(hero, p.hero_class).size()
-	_auto.text = "Equip the best in every slot (%d better waiting)" % upgrades \
-		if upgrades > 0 else "Nothing in the stash beats what is worn"
+	# Short enough for the column it now sits in. The long form clipped to
+	# "Equip the best in every slot (6 bett" — losing the count, which is the
+	# only part of it that changes.
+	_auto.text = "Equip best · %d better" % upgrades \
+		if upgrades > 0 else "Nothing beats what is worn"
 	_auto.disabled = upgrades <= 0
 
 
@@ -189,7 +201,10 @@ func _rebuild_equipped(p: HeroProgress) -> void:
 		var better: Item = roster.stash.best_upgrade(hero, p.hero_class, slot)
 		var row := UiListRow.new()
 		row.index = slot
-		row.custom_minimum_size = Vector2(0, HeroTheme.ROW_H)
+		# NOT pinned to ROW_H here. configure() works out how tall the row has
+		# to be for what is in it — a slot with a "better item waiting" note is
+		# a line taller — and overwriting that afterwards is what made the note
+		# draw over the slot below it.
 		if it == null:
 			row.configure(String(Item.SLOT_NAMES[slot]), "Empty", "",
 				HeroTheme.LINE, -1,

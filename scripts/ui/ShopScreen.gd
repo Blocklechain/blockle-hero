@@ -31,6 +31,9 @@ var _sell_ids: Array[int] = []
 var _sell_tab_button: Button
 var _bulk: Button
 var _bulk_armed: bool = false
+var _preview: HeroPreview
+var _for_label: Label
+var _purse: Label
 
 
 func screen_title() -> String:
@@ -44,10 +47,30 @@ func back_route() -> String:
 func build() -> void:
 	content.add_child(context_strip())
 
+	# WHO YOU ARE SHOPPING FOR, on the left. Stacked, the stock list got about
+	# 190 px of a 940 px screen — one item and the top of the next — because
+	# the tabs, the restock note and the bulk-sell button were all full-width
+	# bands above and below it. The champion belongs here anyway: every price,
+	# every item level and every "fills an empty slot" on the right is relative
+	# to them.
+	_preview = HeroPreview.new()
+	var card := VBoxContainer.new()
+	card.add_theme_constant_override("separation", HeroTheme.GAP)
+	card.add_child(_preview)
+	_for_label = HeroTheme.label("", HeroTheme.F_HEAD)
+	_for_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_for_label.clip_text = true
+	_for_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	card.add_child(_for_label)
+	_purse = HeroTheme.label("", HeroTheme.F_SMALL, HeroTheme.GOLD)
+	_purse.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card.add_child(_purse)
+	var col := split_fixed(card)
+
 	var group := ButtonGroup.new()
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 14)
-	content.add_child(tabs)
+	col.add_child(tabs)
 	var buy_tab := HeroTheme.segment("Buy", group)
 	buy_tab.button_pressed = true
 	buy_tab.pressed.connect(func() -> void: _set_tab(Tab.BUY))
@@ -59,7 +82,7 @@ func build() -> void:
 	_buy_scroll = ScrollContainer.new()
 	_buy_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_buy_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content.add_child(_buy_scroll)
+	col.add_child(_buy_scroll)
 	_buy_box = VBoxContainer.new()
 	_buy_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_buy_box.add_theme_constant_override("separation", 12)
@@ -68,11 +91,11 @@ func build() -> void:
 	_sell_list = VirtualList.new()
 	_sell_list.configure(_make_row, _bind_sell_row)
 	_sell_list.visible = false
-	content.add_child(_sell_list)
+	col.add_child(_sell_list)
 
 	_bulk = HeroTheme.button("", HeroTheme.Btn.SECONDARY)
 	_bulk.pressed.connect(_on_bulk)
-	footer.add_child(_bulk)
+	card.add_child(_bulk)
 
 	refresh()
 
@@ -104,6 +127,16 @@ func refresh() -> void:
 	_offers = Shop.offers(roster.crystal_seed, _refresh_index(),
 		_offer_level(), roster.unlocked_tier)
 	_rebuild_offers()
+
+	if _preview != null:
+		_preview.show_hero(hero)
+		_for_label.text = ChampionName.of(hero)
+		_for_label.add_theme_color_override("font_color", Champion.colour(hero))
+		# HeroTheme.money(), the same grouping the currency bar uses — a bare
+		# int reads "250250" and the player has to count digits.
+		_purse.text = "%s gold · stocked for level %d" % [
+			HeroTheme.money(roster.wallet.balance(Wallet.Kind.GOLD)),
+			_offer_level()]
 
 	_sell_ids = []
 	for it in roster.stash.items:

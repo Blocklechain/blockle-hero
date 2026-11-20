@@ -93,6 +93,30 @@ func _init() -> void:
 	pressed.connect(func() -> void: row_pressed.emit(index))
 
 
+## HOW TALL THIS ROW HAS TO BE, decided here because nothing else will.
+##
+## Three things conspire. The pad is ANCHORED inside the row rather than laid
+## out by a container, so its height never reaches the row's minimum on its
+## own. A script `_get_minimum_size()` is useless: this extends Button, which
+## overrides get_minimum_size() in C++ without consulting the script virtual,
+## so the obvious fix is silently dead code. And a Label measured before it is
+## in the tree has no theme font yet and reports short — the merchant builds
+## and configures its rows BEFORE parenting them, which is why this also runs
+## on entry.
+##
+## Without it the third line — the one saying a better item is waiting, or that
+## a slot is empty — was drawn straight over the row beneath.
+func _fit() -> void:
+	if _pad == null:
+		return
+	custom_minimum_size.y = maxf(float(HeroTheme.ROW_H),
+		_pad.get_combined_minimum_size().y)
+
+
+func _ready() -> void:
+	_fit()
+
+
 func _on_action(which: int) -> void:
 	action_pressed.emit(index, which)
 
@@ -126,20 +150,7 @@ func configure(title: String, subtitle: String, value: String, edge: Color,
 	_subtitle.text = subtitle
 	_note.text = note
 	_note.visible = note != ""
-	# HOW TALL THIS ROW HAS TO BE, decided here because nothing else will.
-	#
-	# Two separate things conspire. The pad is ANCHORED inside the row rather
-	# than laid out by a container, so its height never reaches the row's
-	# minimum on its own. And a script `_get_minimum_size()` is useless here:
-	# this extends Button, and Button overrides get_minimum_size() in C++
-	# without consulting the script virtual — an override on this class is
-	# simply never called, and silently returns the old 150 forever.
-	#
-	# So write the number into custom_minimum_size, which Godot combines by
-	# taking the larger. Without it the third line — the one that says a better
-	# item is waiting — was drawn straight over the row beneath.
-	custom_minimum_size.y = maxf(float(HeroTheme.ROW_H),
-		_pad.get_combined_minimum_size().y)
+	_fit()
 	_value.text = value
 	_value.visible = value != ""
 

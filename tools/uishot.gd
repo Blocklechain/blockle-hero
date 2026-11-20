@@ -45,6 +45,10 @@ func _go() -> void:
 		# photographs a half-laid-out screen and blames the design for it.
 		for i in range(6):
 			await process_frame
+		for vl in main.find_children("*", "VirtualList", true, false):
+			if vl.visible:
+				print("  VirtualList row_height=%d  count=%d  size=%.0fx%.0f"
+					% [vl.row_height, vl.count(), vl.size.x, vl.size.y])
 		if route == UiRoute.CHAMPIONS:
 			print("  --- layout chain ---")
 			_dump(shell, 0)

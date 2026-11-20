@@ -66,8 +66,12 @@ func build() -> void:
 		_tier_buttons.append(b)
 		tiers.add_child(b)
 
-	_tier_note = HeroTheme.prose("")
-	col.add_child(_tier_note)
+	# UNDER THE ART, NOT ABOVE THE LIST. This runs to two lines ("Normal:
+	# enemies at level 1 to 16..."), and above a hundred-entry list that is two
+	# lines the player cannot scroll to a map with. It reads as a caption to the
+	# difficulty they just pressed either way.
+	_tier_note = HeroTheme.prose("", HeroTheme.F_SMALL, HeroTheme.DIM)
+	card.add_child(_tier_note)
 
 	_list = VirtualList.new()
 	_list.configure(_make_row, _bind_row, 170)

@@ -366,7 +366,7 @@ func _stash(heroes: PackedStringArray) -> void:
 		"%d items" % loose_before)
 
 	check("the best gear can be equipped in one action",
-		_press(screen, "Equip the best"))
+		_press(screen, "Equip best ·"))
 	await _settle()
 	var worn: int = r.stash.gear_of(hero).keys().size()
 	check("  gear is on the champion", worn > 0, "%d slots filled" % worn)
