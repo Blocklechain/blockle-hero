@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Trail of Heroes</title>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="36%" r="80%">
+      <stop offset="0" stop-color="#16162A"/>
+      <stop offset="1" stop-color="#0B0B14"/>
+    </radialGradient>
+    <linearGradient id="mark" x1="0" y1="153.6" x2="0" y2="870.4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#71F98C"/>
+      <stop offset="1" stop-color="#00D08C"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="153.6" x2="0" y2="870.4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0E8A5F"/>
+      <stop offset="1" stop-color="#03694A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#0B0B14"/>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <path fill-rule="evenodd" fill="url(#mark)" d="M 512.00,153.60 L 773.73,304.71 L 773.73,427.75 L 674.27,485.18 L 773.73,542.60 L 773.73,719.29 L 512.00,870.40 L 250.27,719.29 L 250.27,304.71 Z M 512.00,763.09 L 669.04,672.42 L 669.04,575.84 L 593.14,532.02 L 494.46,588.99 L 494.46,706.25 L 392.91,647.62 L 392.91,511.00 L 669.04,351.58 L 512.00,260.91 L 354.96,351.58 L 354.96,672.42 Z"/>
+  <path fill="url(#wall)" d="M 392.91,530.36 L 494.46,588.99 L 494.46,706.25 L 392.91,647.62 Z"/>
+</svg>

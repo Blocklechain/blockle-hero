@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bstungait1"]
+
+[ext_resource type="Script" path="res://tools/stungait.gd" id="1"]
+
+[node name="StunGait" type="Node3D"]
+script = ExtResource("1")

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://banimshots1"]
+
+[ext_resource type="Script" path="res://tools/animshots.gd" id="1"]
+
+[node name="AnimShots" type="Node3D"]
+script = ExtResource("1")
