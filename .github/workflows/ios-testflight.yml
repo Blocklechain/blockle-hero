@@ -24,6 +24,7 @@ on:
       - 'scenes/**'
       - 'assets/**'
       - 'project.godot'
+      - 'icon.png'
       - 'export_presets.cfg'
       - 'ExportOptions.plist'
       - '.github/workflows/ios-testflight.yml'
