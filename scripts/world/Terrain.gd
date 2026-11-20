@@ -38,6 +38,33 @@ const DRY_MARGIN: float = 1.4
 # Surface classes, written into `surf` for the mesher and the footstep system.
 enum Surf { GROUND, ROCK, SAND, PATH, WATER, FLOOR }
 
+# WHICH GENERATOR DREW THE PLAN. Two layout kinds exist and BOTH are wanted:
+#
+#   ARENA  Layout.gd — MST plus loops, and in its ROTATIONAL mode the 180 degree
+#          symmetry PvP needs so two players get a provably identical map.
+#   LANE   Lane.gd — a serpentine spine from an entrance to a boss arena at the
+#          far end, with side pockets. This is the 100-map campaign.
+#
+# THE PIPELINE DOES NOT FORK ON THIS, and that is the point. A Lane IS a Layout:
+# same `nodes` (pos/kind/radius/elev), same `edges` (a/b/width/pts), same
+# queries. So _carve_layout stamps a lane's stations and corridors with exactly
+# the discs and segments it stamps an arena's rooms and paths with, and every
+# pass before and after it — macro, normalise, water, rim, carve, path field,
+# basins, terrace, micro, derive, then Shade and Mesher — is the same code in the
+# same order, reading the same per-biome palette and terrain parameters. Measured
+# across 16 biomes x 3 seeds: a lane region is traversable end to end (every
+# station reachable, no leg over 1.09x its planned length) with no lane-specific
+# pass, and generates 4% FASTER than an arena because its corridors are narrower
+# so the carve stamps sweep fewer cells.
+#
+# The kind is recorded anyway, for two reasons that are not generation:
+#   * the game asks. Spawn placement is a ring around the player on an arena and
+#     a distribution along the spine on a lane; the HUD, music and the dread
+#     curve all key off lane progress. They need an answer that is not a guess.
+#   * `plan is Lane` sprinkled through five files is how a second code path
+#     starts. One derivation, in one place, consulted by everyone.
+enum Kind { ARENA, LANE }
+
 var size: int = 192                  # cells per side
 var cell: float = 1.0                # metres per cell
 var biome_id: String = "greenwood"
@@ -49,6 +76,17 @@ var ao: PackedFloat32Array = PackedFloat32Array()         # 0 dark .. 1 open
 var slope: PackedFloat32Array = PackedFloat32Array()
 var surf: PackedByteArray = PackedByteArray()
 var walk: PackedByteArray = PackedByteArray()             # 1 = walkable
+
+## How much carve a cell needs before a LANE counts it walkable. The carve field
+## falls off over `width * 3.6` from the spine, so this is effectively "how far
+## off the lane may the player stray" expressed as a field value rather than a
+## distance. Tuned by measurement, not feel: see the `bypass:` line that
+## tools/encountertest.gd prints every run.
+const LANE_CARVE_FLOOR: float = 0.55
+
+## Cached once per build so the per-cell walkability test is a bool read rather
+## than a method call inside a 384x384 loop.
+var _lane_mask: bool = false
 var carve: PackedFloat32Array = PackedFloat32Array()      # 0 natural .. 1 carved
 
 # Noise fields, configured once per region and shared by every pass (and by
@@ -83,9 +121,32 @@ var water_h: float = -100000.0
 var h_min: float = 0.0
 var h_max: float = 1.0
 var layout: Layout = null
+var layout_kind: int = Kind.ARENA
 
 
 # ------------------------------------------------------------------------------
+
+# Build the plan for a kind. THE one place that maps a Kind to its generator, so
+# a caller that wants a campaign map asks for Kind.LANE rather than knowing which
+# class to construct — and adding a third topology later changes this function
+# instead of every caller.
+static func plan_for(kind: int, world_seed: int, size: Vector2,
+		sym: int = Layout.Sym.ASYMMETRIC, node_count: int = 11) -> Layout:
+	if kind == Kind.LANE:
+		return Lane.make(world_seed, size)
+	return Layout.generate(world_seed, size, sym, node_count)
+
+
+# The kind of a plan already built. Derived from the plan rather than passed in
+# beside it: a kind argument that can disagree with the layout it describes is a
+# bug waiting to be written, and the plan's own type cannot lie.
+static func kind_of(plan: Layout) -> int:
+	return Kind.LANE if plan is Lane else Kind.ARENA
+
+
+func is_lane() -> bool:
+	return layout_kind == Kind.LANE
+
 
 static func generate(world_seed: int, biome: String, cells: int,
 		cell_size: float, plan: Layout) -> Terrain:
@@ -95,6 +156,8 @@ static func generate(world_seed: int, biome: String, cells: int,
 	t.size = cells
 	t.cell = cell_size
 	t.layout = plan
+	t.layout_kind = kind_of(plan)
+	t._lane_mask = t.layout_kind == Kind.LANE
 
 	var n: int = cells * cells
 	t.h.resize(n)
@@ -451,6 +514,20 @@ func _build_stamps() -> Array:
 		# AND THEN KEEP IT DRY. Negative elevation bias was sinking arena floors
 		# below the water line, so the first render's "lakes" were in fact the
 		# arenas — the player would have spawned underwater.
+		#
+		# IT IS A HARD CLAMP AND IT HAS TO STAY ONE. It pins most carved floors in
+		# a wet biome to exactly this height — 17 of a lane's 22 stations in
+		# greenwood — which flattens the rise-and-fall profile Lane.gd asks for,
+		# so it was worth trying to spread those floors by their elevation bias
+		# across the headroom between the water line and the hills instead.
+		# MEASURED, over all 16 biomes: that headroom is 0.58 m in greenwood,
+		# 0.10 m in mistmoor and NEGATIVE in molten, hollows and gloomroot, and
+		# the spread it bought was -0.05 m on average — it made things very
+		# slightly worse by lifting drowned floors toward the dry ones. The lane
+		# is as flat as the land is: `_normalise_slope` targets a mean gradient,
+		# which gives a 192 m region about 4 m of interior relief, and water at
+		# the 24th percentile plus 1.4 m of margin eats most of it. Do not
+		# re-litigate this without re-measuring those numbers.
 		if water_h > -99999.0:
 			base = maxf(base, water_h + DRY_MARGIN)
 		node_h.append(base)
@@ -866,6 +943,22 @@ func _derive_band(band: int) -> void:
 			# Hard border, so no amount of terrain luck lets a player leave.
 			if x <= 1 or y <= 1 or x >= sz - 2 or y >= sz - 2:
 				ok = false
+
+			# ON A LANE, OFF-LANE GROUND IS NOT WALKABLE.
+			#
+			# Slope alone left 68% of the region traversable, so the serpentine's
+			# folds were joined by open ground rather than separated by it: A*
+			# reached the boss in 130 m of a 400 m lane (32%), straying up to
+			# 18.9 m from the centreline to cut across gaps the sweeps had placed
+			# 44 m apart. A player could meet one or two packs out of nine and
+			# walk past the rest.
+			#
+			# The lane has to BE the route, not a suggestion. `carve` is already
+			# the field the lane was stamped into, so testing it here costs
+			# nothing and severs the folds by construction. Arenas are untouched:
+			# an arena is meant to be open ground, and _lane_mask is false there.
+			if ok and _lane_mask and carve[i] < LANE_CARVE_FLOOR:
+				ok = false
 			walk[i] = 1 if ok else 0
 
 			# Cheap ambient occlusion: how much lower this cell sits than the
@@ -959,6 +1052,7 @@ func reachable_fraction(from: Vector2) -> float:
 func nodes_connected(plan: Layout, from: Vector2) -> float:
 	if plan == null or plan.nodes.is_empty():
 		return 1.0
+	# A lane answers a stronger question as well; see lane_reachable_fraction.
 	var seen: PackedByteArray = flood_from(from)
 	var half: float = float(size) * cell * 0.5
 	var ok: int = 0
@@ -969,3 +1063,52 @@ func nodes_connected(plan: Layout, from: Vector2) -> float:
 		if seen[idx(cx, cy)] == 1:
 			ok += 1
 	return float(ok) / float(plan.nodes.size())
+
+
+# The same question asked of a LANE, where it is strictly harder. An arena graph
+# has loops, so its rooms have several ways in; a lane is one thread, and
+# nodes_connected() can read 100% while a stretch of the route BETWEEN two
+# stations is a cliff the player has to detour around across open biome. So this
+# measures the route itself: the fraction of the spine, by arc length, whose
+# ground is reachable on foot from `from`. For a campaign map it must be 1.0.
+#
+# `tol` exists because the spine is a mathematical centreline and a single 0.5 m
+# cell on it may be the one a boulder stands on. The player walks round the
+# boulder; a metric that called that a severed lane would be crying wolf. So a
+# sample counts if walkable reached ground lies within tol metres of it.
+func lane_reachable_fraction(plan: Lane, from: Vector2, tol: float = 2.5) -> float:
+	if plan == null or plan.spine.size() < 2:
+		return 1.0
+	var seen: PackedByteArray = flood_from(from)
+	var half: float = float(size) * cell * 0.5
+	var ring: int = maxi(int(ceil(tol / cell)), 1)
+	var good: float = 0.0
+	var total: float = 0.0
+	for i in range(plan.spine.size()):
+		# Weight by the arc each sample represents, not by sample count: the
+		# spline samples densely on the U-turns, and an unweighted count would let
+		# a few metres of hairpin outvote a whole sweep.
+		var span: float = 0.0
+		if i > 0:
+			span += plan.spine[i - 1].distance_to(plan.spine[i]) * 0.5
+		if i < plan.spine.size() - 1:
+			span += plan.spine[i].distance_to(plan.spine[i + 1]) * 0.5
+		total += span
+		var p: Vector2 = plan.spine[i]
+		var cx: int = clampi(int((p.x + half) / cell), 0, size - 1)
+		var cy: int = clampi(int((p.y + half) / cell), 0, size - 1)
+		var hit: bool = false
+		for dy in range(-ring, ring + 1):
+			for dx in range(-ring, ring + 1):
+				var x: int = cx + dx
+				var y: int = cy + dy
+				if not in_bounds(x, y):
+					continue
+				if seen[idx(x, y)] == 1:
+					hit = true
+					break
+			if hit:
+				break
+		if hit:
+			good += span
+	return good / maxf(total, 0.001)

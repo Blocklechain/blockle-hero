@@ -17,6 +17,12 @@ extends RefCounted
 
 signal champion_unlocked(hero: String, rarity: int, was_duplicate: bool)
 signal tier_unlocked(tier: int)
+## Every map of one difficulty is now cleared. Fires once, on the clear that
+## completed it, never again on a replay.
+signal difficulty_completed(tier: int)
+## The one-time clear reward was actually paid. `crystals` is what the wallet
+## gained, so a listener can never report a payout that did not happen.
+signal difficulty_reward_granted(tier: int, crystals: int)
 
 const SAVE_PATH: String = "user://roster.json"
 const SAVE_VERSION: int = 1
@@ -29,6 +35,21 @@ var owned: Dictionary = {}
 
 ## Highest campaign tier unlocked, account-wide.
 var unlocked_tier: int = Campaign.Tier.NORMAL
+
+## Which maps have been cleared, per difficulty: tier -> { map_index: true }.
+##
+## A SET, not a count. Re-clearing map 7 writes the same key a second time, so
+## no amount of replaying can make the campaign look longer than it is — which
+## is the only thing standing between a replay and a second free crystal.
+var cleared_maps: Dictionary = {}
+
+## Difficulties whose one-time clear reward has been paid: tier -> true.
+##
+## A FLAG, deliberately, and separate from `cleared_maps`. "Has been paid" must
+## not be derivable from progress, because progress is re-achievable; a player
+## who clears the last map, replays it, and reloads the save has to end up with
+## exactly one crystal in all three cases.
+var difficulty_claimed: Dictionary = {}
 
 ## Crystals opened since the last Epic-or-better, for the pity guarantee.
 var crystals_since_epic: int = 0
@@ -230,9 +251,92 @@ func complete_campaign(hero: String, tier: int) -> void:
 	var p: HeroProgress = progress(hero)
 	if p != null:
 		p.tiers_cleared = maxi(p.tiers_cleared, tier)
-	if tier >= unlocked_tier and unlocked_tier < Campaign.Tier.ETERNAL:
+	if tier >= unlocked_tier and unlocked_tier < Campaign.max_tier():
 		unlocked_tier += 1
 		tier_unlocked.emit(unlocked_tier)
+
+
+# ------------------------------------------------------------------------------
+# Clearing a difficulty — one spawn crystal, once ever
+# ------------------------------------------------------------------------------
+
+## What clearing an entire difficulty pays. Named rather than inlined so the
+## test can assert the payout instead of restating it.
+const DIFFICULTY_REWARD_CRYSTALS: int = 1
+
+
+## How many difficulties exist, read off the enum itself rather than copied.
+## Campaign is widening from four tiers to eight; a hardcoded 4 or 8 here would
+## go stale in a file nobody thinks to look at, and the symptom would be a
+## reward that never pays (or pays on an incomplete difficulty).
+static func difficulty_count() -> int:
+	return Campaign.Tier.size()
+
+
+## How many maps one difficulty contains — Campaign's number, not ours.
+static func maps_per_difficulty() -> int:
+	return Campaign.region_count()
+
+
+func is_map_cleared(tier: int, index: int) -> bool:
+	return (cleared_maps.get(tier, {}) as Dictionary).has(index)
+
+
+## Cleared maps of a difficulty, counting only indices the campaign actually
+## has. Counting raw keys instead would let a save written against a longer
+## campaign (or a junk index) read as complete on a shorter one.
+func cleared_map_count(tier: int) -> int:
+	var done: Dictionary = cleared_maps.get(tier, {})
+	if done.is_empty():
+		return 0
+	var n: int = 0
+	for i in range(maps_per_difficulty()):
+		if done.has(i):
+			n += 1
+	return n
+
+
+func is_difficulty_cleared(tier: int) -> bool:
+	var total: int = maps_per_difficulty()
+	return total > 0 and cleared_map_count(tier) >= total
+
+
+func difficulty_reward_claimed(tier: int) -> bool:
+	return bool(difficulty_claimed.get(tier, false))
+
+
+## Record that a map was beaten, and pay the difficulty's clear reward if this
+## was the last one outstanding. Returns the crystals granted — 0 on every call
+## but the one that finishes the difficulty for the first time, so a caller can
+## show "+1 Spawn Crystal" without having to know whether it had been paid.
+func record_map_cleared(tier: int, index: int) -> int:
+	if tier < 0 or tier >= difficulty_count():
+		return 0
+	if index < 0 or index >= maps_per_difficulty():
+		return 0
+	var was_complete: bool = is_difficulty_cleared(tier)
+	var done: Dictionary = cleared_maps.get(tier, {})
+	done[index] = true
+	cleared_maps[tier] = done
+	if not was_complete and is_difficulty_cleared(tier):
+		difficulty_completed.emit(tier)
+	return _claim_difficulty_reward(tier)
+
+
+## THE single place a clear reward can be paid. Both guards are load-bearing:
+## the claimed flag defeats a replay, and the completeness test defeats a caller
+## that reports a clear the save does not support.
+func _claim_difficulty_reward(tier: int) -> int:
+	if difficulty_reward_claimed(tier) or not is_difficulty_cleared(tier):
+		return 0
+	# Claimed before granted. If anything after this line ever goes wrong the
+	# failure is an unpaid crystal, which a player reports and support can fix;
+	# the other order fails by paying twice, silently, forever.
+	difficulty_claimed[tier] = true
+	wallet.grant(Wallet.Kind.CRYSTALS, DIFFICULTY_REWARD_CRYSTALS,
+		"difficulty_cleared:%d" % tier)
+	difficulty_reward_granted.emit(tier, DIFFICULTY_REWARD_CRYSTALS)
+	return DIFFICULTY_REWARD_CRYSTALS
 
 
 # ------------------------------------------------------------------------------
@@ -297,7 +401,33 @@ func to_dict() -> Dictionary:
 		"crystals_opened": crystals_opened,
 		"since_epic": crystals_since_epic,
 		"iap_txns": redeemed_txns,
+		# Written as string-keyed lists of ints because that is what JSON can
+		# carry back: object keys are always strings, so the int tier keys are
+		# stringified here deliberately rather than by accident on reload.
+		"cleared_maps": _cleared_maps_to_json(),
+		"claimed_difficulties": _claimed_to_json(),
 	}
+
+
+func _cleared_maps_to_json() -> Dictionary:
+	var out: Dictionary = {}
+	for tier in cleared_maps.keys():
+		var done: Dictionary = cleared_maps[tier]
+		var indices: Array[int] = []
+		for i in done.keys():
+			indices.append(int(i))
+		indices.sort()  # Stable bytes, so two equal saves compare equal.
+		out[str(int(tier))] = indices
+	return out
+
+
+func _claimed_to_json() -> Array[int]:
+	var out: Array[int] = []
+	for tier in difficulty_claimed.keys():
+		if bool(difficulty_claimed[tier]):
+			out.append(int(tier))
+	out.sort()
+	return out
 
 
 ## Loading NEVER filters `owned` against the catalogue. A save written before
@@ -310,7 +440,7 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 	r.catalogue = playable
 	r.wallet = Wallet.from_dict(d.get("wallet", {}))
 	r.stash = Stash.from_dict(d.get("stash", {}))
-	r.unlocked_tier = clampi(int(d.get("tier", 0)), 0, Campaign.Tier.ETERNAL)
+	r.unlocked_tier = clampi(int(d.get("tier", 0)), 0, Campaign.max_tier())
 	r.crystal_seed = int(d.get("crystal_seed", 20261119))
 	r.crystals_opened = int(d.get("crystals_opened", 0))
 	r.crystals_since_epic = int(d.get("since_epic", 0))
@@ -322,6 +452,24 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 	var heroes: Dictionary = d.get("owned", {})
 	for k in heroes.keys():
 		r.owned[k] = HeroProgress.from_dict(heroes[k])
+	# A save written before clear-tracking existed has neither field. Defaulting
+	# to empty is the whole of the migration: nothing cleared, nothing claimed,
+	# so the next genuine clear pays once. The dangerous alternative — inferring
+	# "claimed" from an old `tier` or `tiers_cleared` — would hand a returning
+	# player up to one crystal per difficulty for maps this save cannot prove
+	# they beat. An unpaid crystal is recoverable; eight free ones are not.
+	var cleared: Dictionary = d.get("cleared_maps", {})
+	for k in cleared.keys():
+		# JSON hands back string keys and float values; both are narrowed here,
+		# because a float key would never match the int lookups above.
+		var tier: int = int(String(k))
+		var done: Dictionary = {}
+		for i in cleared[k]:
+			done[int(i)] = true
+		if not done.is_empty():
+			r.cleared_maps[tier] = done
+	for t in d.get("claimed_difficulties", []):
+		r.difficulty_claimed[int(t)] = true
 	return r
 
 

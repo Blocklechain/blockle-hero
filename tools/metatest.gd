@@ -238,8 +238,8 @@ func _init() -> void:
 
 	# --- campaign tiers -------------------------------------------------
 	print("\n=== campaign ===")
-	check("16 regions in 4 acts",
-		Campaign.region_count() == 16 and Campaign.act_count() == 4)
+	check("100 maps in 10 acts",
+		Campaign.region_count() == 100 and Campaign.act_count() == 10)
 	check("higher tiers are locked at the start",
 		not Campaign.can_enter(Campaign.Tier.MERCILESS, pa, r.unlocked_tier),
 		Campaign.entry_blocked_reason(Campaign.Tier.MERCILESS, pa, r.unlocked_tier))

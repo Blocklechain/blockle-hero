@@ -164,7 +164,7 @@ static func item_level(enemy_level: int, champion_level: int) -> int:
 static func gold_for(region_seed: int, kill_index: int, enemy_level: int,
 		tier: int) -> int:
 	var base: float = (GOLD_BASE + float(maxi(enemy_level, 1)) * GOLD_PER_LEVEL) \
-		* float(Campaign.TIER_XP.get(tier, 1.0))
+		* Campaign.xp_mult(tier)
 	var swing: float = (Rng.unit2(region_seed, kill_index, 8837) * 2.0 - 1.0) \
 		* GOLD_SPREAD
 	return maxi(int(round(base * (1.0 + swing))), 1)

@@ -39,8 +39,9 @@ func build() -> void:
 	tiers.add_theme_constant_override("separation", 10)
 	content.add_child(tiers)
 	var group := ButtonGroup.new()
-	for tier in [Campaign.Tier.NORMAL, Campaign.Tier.VETERAN,
-			Campaign.Tier.MERCILESS, Campaign.Tier.ETERNAL]:
+	# Every difficulty the campaign declares, not a hand-listed four — the eighth
+	# tier must not be unreachable because this row was never updated.
+	for tier in range(Campaign.tier_count()):
 		var b := HeroTheme.segment(Campaign.tier_name(tier), group)
 		b.add_theme_font_size_override("font_size", HeroTheme.F_SMALL)
 		b.pressed.connect(_on_tier.bind(tier))

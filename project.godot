@@ -21,11 +21,18 @@ config/icon="res://icon.png"
 
 [display]
 
-window/size/viewport_width=1170
-window/size/viewport_height=2532
+; LANDSCAPE. An isometric ARPG wants horizontal room — in portrait the camera
+; sees a tall slice of ground with most of the play space off either side, and
+; the thumb that drives the joystick covers a third of it.
+;
+; The viewport is the logical design size every UI position is authored
+; against, so it is the long edge first: 2532x1170 is the same iPhone panel
+; turned 90 degrees.
+window/size/viewport_width=2532
+window/size/viewport_height=1170
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation="portrait"
+window/handheld/orientation="landscape"
 
 [rendering]
 

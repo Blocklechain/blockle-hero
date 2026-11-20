@@ -579,12 +579,18 @@ func _handoff(heroes: PackedStringArray) -> void:
 	if play != null:
 		check("  it was given the chosen champion",
 			String(play.get("hero")) == hero, ChampionName.of(hero))
-		check("  and the chosen region's ground",
+		# The biome id carries the map's DREAD as well as its name — that tag is
+		# the only route the dread curve has into the game (see UiShell._launch),
+		# so this checks both halves: the right place, lit for the right point in
+		# the campaign. Comparing against the bare id would pass while every map
+		# in the game was lit like map 1.
+		var handed: String = String(play.get("biome"))
+		check("  and the chosen region's ground, at its dread",
 			int(play.get("world_seed"))
 				== Campaign.region_seed(r.crystal_seed, region)
-			and String(play.get("biome")) == Campaign.biome_at(region),
-			"%s seed %d" % [Campaign.biome_at(region),
-				Campaign.region_seed(r.crystal_seed, region)])
+			and Biome.base_id(handed) == Campaign.biome_at(region)
+			and absf(Biome.dread_in(handed) - Campaign.dread(region)) <= 0.01,
+			"%s seed %d" % [handed, Campaign.region_seed(r.crystal_seed, region)])
 	check("the menus are out of the way while playing",
 		not (shell.get_node("Ui") as CanvasLayer).visible)
 

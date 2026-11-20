@@ -109,18 +109,42 @@ static func light(base: Color, nrm: Vector3, ao: float, alt: float,
 	var amb_col: Color = b["ambient"]
 	var fog_col: Color = b["fog"]
 
+	# THE DREAD RATIO, and only the ratio. The colours above have already been
+	# graded by Biome's dread shift; what is left is how hard the key beats the
+	# fill, and that is deliberately NOT tuned here — the three numbers come out
+	# of Biome so this function and Mesher's DirectionalLight/Environment cannot
+	# drift apart and leave the preview predicting a different game.
+	#
+	# Note which way they move: the fill drops, the key RISES. A dread-1.0 lane
+	# is harsher and more contrasted than map 1, not dimmer.
+	# The KEY is scaled here because the sun colour deliberately holds its
+	# luminance — the only place the key can gain is its energy. The FILL is NOT
+	# scaled here, because `ambient` has already been graded down to the fill
+	# level: doing both would darken the fill twice, which is exactly the bug
+	# that put voidrift's floor at black in the 3D render while this function
+	# still said it was fine.
+	var key_w: float = float(b.get("key_mult", 1.0)) * 0.95
+	var fill_w: float = 0.55
+	var gamma: float = float(b.get("key_gamma", 1.4))
+
 	# Half-lambert on the key. Straight lambert crushes every shadowed slope to
 	# black, which is unreadable on a phone held outdoors; this keeps form
 	# visible in shadow while still giving a strong lit side.
 	var ndl: float = nrm.dot(SUN_DIR.normalized())
-	var key: float = pow(clampf(ndl * 0.5 + 0.5, 0.0, 1.0), 1.4)
+	var key: float = pow(clampf(ndl * 0.5 + 0.5, 0.0, 1.0), gamma)
 
-	var lit: Color = base * (amb_col * 0.55 + sun_col * key * 0.95)
+	var lit: Color = base * (amb_col * fill_w + sun_col * key * key_w)
 	lit = lit * ao
 
 	# Aerial perspective — low ground hazes toward the fog colour, high ground
 	# stays crisp. Cheap depth cue, and it ties the terrain to the sky.
-	var haze: float = clampf((1.0 - alt) * float(b["fog_density"]) * 26.0, 0.0, 0.42)
+	#
+	# THE CAP DOES NOT MOVE WITH DREAD, and that is a measured decision rather
+	# than an omission: haze pulls the lit and the shadowed side toward the same
+	# fog colour, so raising it flattens exactly the contrast the rest of the
+	# shift is buying. See the note beside Biome's lighting constants.
+	var haze: float = clampf((1.0 - alt) * float(b["fog_density"]) * 26.0, 0.0,
+		0.42)
 	return lit.lerp(fog_col, haze).clamp()
 
 
@@ -168,6 +192,12 @@ static func bake(t: Terrain) -> void:
 	var f_strata: Field = t.fields["strata"]
 	var f_grain: Field = t.fields["grain"]
 	var f_path: Field = t.fields["path"]
+
+	# How dark an occluded cell may go. Dread deepens it: hollows, ditches and
+	# the inside of a prop cluster get blacker as the campaign goes on, which is
+	# local contrast rather than a global dimming — the open ground beside them
+	# is untouched, so nothing the player needs to read gets lost.
+	var ao_lo: float = float(b.get("ao_floor", 0.72))
 
 	var span: float = maxf(t.h_max - t.h_min, 0.0001)
 	var half: float = float(t.size) * t.cell * 0.5
@@ -220,7 +250,7 @@ static func bake(t: Terrain) -> void:
 
 			# AO folded in, then sRGB -> linear. Alpha is rockiness, NOT opacity,
 			# so it must not go through the colour conversion.
-			var k: float = lerpf(0.72, 1.0, t.ao[i])
+			var k: float = lerpf(ao_lo, 1.0, t.ao[i])
 			var lin: Color = Color(c.r * k, c.g * k, c.b * k).srgb_to_linear()
 			t.vcol[i] = Color(lin.r, lin.g, lin.b, rocky)
 
@@ -248,7 +278,8 @@ static func bake(t: Terrain) -> void:
 static func albedo_ao(t: Terrain, x: int, y: int) -> Color:
 	var i: int = t.idx(x, y)
 	var c: Color = albedo(t, x, y)
-	var k: float = lerpf(0.72, 1.0, t.ao[i])
+	var k: float = lerpf(float(Biome.field(t.biome_id, "ao_floor", 0.72)), 1.0,
+		t.ao[i])
 	# ALPHA IS NOT OPACITY HERE. The terrain shader reads it as "rockiness", so
 	# stone can take grain and specular differently from grass without needing a
 	# second UV channel or a splat map.

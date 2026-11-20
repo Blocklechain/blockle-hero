@@ -204,7 +204,10 @@ static func water_material(biome_id: String) -> Material:
 	# Molten runs its "water" as lava: opaque, emissive, and it must NOT get the
 	# depth-shaded shoreline foam treatment, which would put white surf on a
 	# lava lake.
-	if biome_id == "molten":
+	# base_id, not the raw id: a campaign biome arrives dread-tagged
+	# ("molten~72"), and an == against the bare name would silently hand a lava
+	# lake the depth-shaded shoreline foam shader.
+	if Biome.base_id(biome_id) == "molten":
 		var lava := StandardMaterial3D.new()
 		lava.albedo_color = b["water"]
 		lava.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
@@ -256,6 +259,14 @@ static func build_environment(biome_id: String) -> Environment:
 	# the key light and every shadow washed out to nothing — the scene read as
 	# uniformly flat and dark. A strong key against a modest fill is what gives
 	# the ground form.
+	#
+	#
+	# AND IT IS NOT WHERE DREAD DARKENS THE FILL, because it cannot be: with
+	# ambient_light_sky_contribution at 1.0 this energy does nothing. Measured —
+	# the same frame rendered at 0.42 and at 2.10 came out identical to within
+	# 1%. The fill in this renderer IS the sky colour, which Biome's dread shift
+	# darkens directly; see the LUM_SKY_* note there. Multiplying here as well
+	# would be a second, invisible, uncontrolled darkening.
 	env.ambient_light_energy = 0.42
 
 	env.fog_enabled = true
@@ -278,7 +289,7 @@ static func build_environment(biome_id: String) -> Environment:
 	env.adjustment_enabled = true
 	env.adjustment_brightness = 1.02
 	env.adjustment_contrast = 1.09
-	env.adjustment_saturation = 1.12
+	env.adjustment_saturation = 1.12 * float(b.get("sat_grade", 1.0))
 
 	# Glow, so the emissive props (crystal tips, lava seams, brazier fire) bleed
 	# light instead of being merely bright pixels. Threshold sits above 1.0 so
@@ -297,7 +308,7 @@ static func build_sun(biome_id: String) -> DirectionalLight3D:
 	var b: Dictionary = Biome.get_biome(biome_id)
 	var sun := DirectionalLight3D.new()
 	sun.light_color = b["sun"]
-	sun.light_energy = 1.75
+	sun.light_energy = 1.75 * float(b.get("key_mult", 1.0))
 	# Orientation set as an explicit basis, NOT via look_at_from_position().
 	# look_at operates on the global transform and silently does nothing unless
 	# the node is already inside the scene tree — and this light is oriented

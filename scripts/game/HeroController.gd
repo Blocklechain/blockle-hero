@@ -66,6 +66,11 @@ var _cooldowns: Dictionary = {}       # ability id -> seconds remaining
 var _path: PackedVector2Array = PackedVector2Array()
 var _leg: int = 0
 var _speed: float = RUN_SPEED
+
+## Joystick state. Vector2.ZERO means the stick is released and the path
+## follower owns movement again.
+var _drive: Vector2 = Vector2.ZERO
+var _drive_run: bool = true
 var _busy_until: float = 0.0           # locked out while an ability plays
 var _facing: float = 0.0
 
@@ -164,7 +169,9 @@ func ground_position() -> Vector2:
 
 
 func is_moving() -> bool:
-	return _leg < _path.size()
+	# Either source of motion counts. Reporting false while the stick is
+	# held would tell callers the champion is standing still mid-run.
+	return _drive != Vector2.ZERO or _leg < _path.size()
 
 
 func is_busy() -> bool:
@@ -194,6 +201,9 @@ func move_to(target: Vector2, run: bool = true) -> bool:
 func stop() -> void:
 	_path = PackedVector2Array()
 	_leg = 0
+	# Release the stick too. stop() means "cease moving", and leaving
+	# _drive set would have the champion keep walking off a stop order.
+	_drive = Vector2.ZERO
 
 
 ## Use an ability. Slot 0 is the basic attack; 1-3 are the three per-hero
@@ -249,6 +259,14 @@ func _physics_process(delta: float) -> void:
 	if _busy_until > 0.0:
 		_busy_until -= delta
 		_apply_facing(delta)
+		return
+
+	# THE JOYSTICK PATH. A held stick is a direction, not a destination, so it
+	# bypasses the path follower entirely — planning a route to a point one frame
+	# ahead and re-planning next frame would burn an A* every tick and still
+	# steer worse than going straight where the thumb points.
+	if _drive != Vector2.ZERO:
+		_drive_step(delta)
 		return
 
 	if _leg >= _path.size():
@@ -357,6 +375,83 @@ func _physics_process(delta: float) -> void:
 	# no bespoke stagger clip for 200 models.
 	var running: bool = (_speed >= RUN_SPEED - 0.01) and not stunned
 	rig.set_locomotion(1.0 if running else 0.45)
+	rig.set_state(HeroRig.State.RUN if running else HeroRig.State.WALK)
+
+
+## Steer continuously toward `dir` (world XZ, any length; magnitude 0..1 scales
+## the speed so a half-pushed stick walks). Vector2.ZERO releases the stick.
+##
+## Clears any tap-to-move path: the two are different intents and letting a
+## stale path survive means releasing the stick teleports the hero's attention
+## back to wherever it was last told to go.
+func drive(dir: Vector2, run: bool = true) -> void:
+	if _dead:
+		return
+	var mag: float = minf(dir.length(), 1.0)
+	if mag < 0.001:
+		_drive = Vector2.ZERO
+		return
+	_drive = (dir / dir.length()) * mag
+	_drive_run = run
+	if not _path.is_empty():
+		_path.clear()
+		_leg = 0
+
+
+## True while the stick is held — the HUD dims the tap-to-move affordance.
+func is_driven() -> bool:
+	return _drive != Vector2.ZERO
+
+
+func _drive_step(delta: float) -> void:
+	var here: Vector2 = ground_position()
+
+	# Same stun rule as the path follower: forced down to a walk, then slowed
+	# further on top. Kept in step with it deliberately — a stun that reads
+	# differently depending on how the player happens to be moving is a bug.
+	var stunned: bool = is_stunned()
+	var base: float = WALK_SPEED if stunned else (RUN_SPEED if _drive_run else WALK_SPEED)
+	var speed: float = base * _drive.length()
+	if body != null:
+		speed *= body.move_multiplier()
+
+	var dir: Vector2 = _drive.normalized()
+	var step: float = speed * delta
+	var next: Vector2 = here + dir * step
+
+	# WALL SLIDE. Refusing a blocked step outright makes the hero stick to
+	# terrain edges and feels broken under a thumb that is still pushing; try
+	# each axis alone so a diagonal into a wall slides along it instead.
+	if not pathing.is_walkable(next):
+		var slide_x: Vector2 = here + Vector2(dir.x, 0.0) * step
+		var slide_y: Vector2 = here + Vector2(0.0, dir.y) * step
+		if pathing.is_walkable(slide_x):
+			next = slide_x
+			dir = Vector2(signf(dir.x), 0.0)
+		elif pathing.is_walkable(slide_y):
+			next = slide_y
+			dir = Vector2(0.0, signf(dir.y))
+		else:
+			# Wedged into a corner. Hold position but keep facing where the
+			# player is pushing, so the stick still feels connected.
+			_facing = atan2(_drive.x, _drive.y)
+			_apply_facing(delta)
+			rig.set_locomotion(0.0)
+			rig.set_state(HeroRig.State.IDLE)
+			return
+
+	position = Vector3(next.x, terrain.height_at(next), next.y)
+	_facing = atan2(dir.x, dir.y)
+	_apply_facing(delta)
+
+	# Metered by ground actually covered, so the stun slow carries through.
+	_stride_left -= step
+	if _stride_left <= 0.0:
+		_stride_left = STRIDE
+		Audio.footstep()
+
+	var running: bool = _drive_run and not stunned and _drive.length() > 0.55
+	rig.set_locomotion(_drive.length() if running else minf(_drive.length(), 0.45))
 	rig.set_state(HeroRig.State.RUN if running else HeroRig.State.WALK)
 
 

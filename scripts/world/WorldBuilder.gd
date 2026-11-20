@@ -48,13 +48,19 @@ func is_busy() -> bool:
 # shared arrays that made the parallel attempt slower.
 func build(world_seed: int, biome_id: String, cells: int = 384,
 		cell_size: float = 0.5, symmetry: int = Layout.Sym.ASYMMETRIC,
-		node_count: int = 11) -> bool:
+		node_count: int = 11, kind: int = Terrain.Kind.ARENA) -> bool:
 	if _busy:
 		return false
 	_busy = true
+	# `kind` picks the layout GENERATOR — Kind.ARENA for Layout's graph (and its
+	# rotational PvP mode), Kind.LANE for the campaign's spine. It is last and
+	# defaults to ARENA so existing callers keep the map they already build.
+	# `symmetry` and `node_count` are ARENA's parameters; a lane takes neither,
+	# which is why Terrain.plan_for() — not this function — owns the mapping.
 	_req = {
 		"seed": world_seed, "biome": biome_id, "cells": cells,
 		"cell": cell_size, "sym": symmetry, "nodes": node_count,
+		"kind": kind,
 	}
 	_thread = Thread.new()
 	_thread.start(_run)
@@ -73,8 +79,9 @@ func _run() -> void:
 	var extent: float = float(cells) * cell_size
 
 	_stage(0)
-	var plan := Layout.generate(world_seed, Vector2(extent, extent),
-		int(_req["sym"]), int(_req["nodes"]))
+	var plan: Layout = Terrain.plan_for(int(_req.get("kind", Terrain.Kind.ARENA)),
+		world_seed, Vector2(extent, extent), int(_req["sym"]),
+		int(_req["nodes"]))
 
 	_stage(1)
 	var ter := Terrain.generate(world_seed, biome_id, cells, cell_size, plan)

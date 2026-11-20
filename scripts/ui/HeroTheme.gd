@@ -10,12 +10,25 @@ extends RefCounted
 # Item.RARITY_COLOURS, because a player must learn one colour language for
 # champions, loot and shop stock alike.
 #
-# SIZES ARE IN VIEWPORT PIXELS, and the viewport is 1170x2532 — an iPhone at 3x
-# (see project.godot). That is why every number below looks enormous written
-# down: TAP = 132 px is Apple's 44 pt minimum touch target at that scale, and
-# F_BODY = 40 px is about 13 pt on the glass. Anything smaller than TAP is not
-# allowed to be tappable, and anything smaller than F_SMALL is not allowed to
-# carry information the player needs.
+# SIZES ARE IN VIEWPORT PIXELS, and the viewport is 2532x1170 — an iPhone at 3x
+# held LANDSCAPE (see project.godot). That is why every number below looks
+# enormous written down: TAP = 132 px is Apple's 44 pt minimum touch target at
+# that scale, and F_BODY = 40 px is about 13 pt on the glass. Anything smaller
+# than TAP is not allowed to be tappable, and anything smaller than F_SMALL is
+# not allowed to carry information the player needs.
+#
+# WHY THE SCALE CHANGED. These numbers were first authored against a 1170x2532
+# PORTRAIT design size. Shown on a landscape screen, Godot had to fit a 2532 px
+# tall design into 1170 px of glass — a scale of about 0.46 — so F_BODY landed
+# near 6 pt and the entire interface was unreadable. The viewport is landscape
+# now, which restores the intended 1:1, and the vertical sizes below are retuned
+# for the consequence: the budget is 1170 px tall instead of 2532, so headings
+# that were a comfortable fraction of a tall page are oversized on a wide one,
+# and list rows have to be shorter to fit more than a handful on screen.
+#
+# The horizontal budget more than doubled, so screens lay out in COLUMNS; a
+# single centred column in a 2532 px-wide space wastes two thirds of the glass
+# and pushes everything else off the bottom.
 # ------------------------------------------------------------------------------
 
 # --- ground and structure -----------------------------------------------------
@@ -54,21 +67,39 @@ const ATTR_COLOUR: Dictionary = {
 }
 
 # --- type scale ---------------------------------------------------------------
-const F_TITLE: int = 128
-const F_SUPER: int = 72
-const F_HEAD: int = 54
-const F_NUM: int = 60
-const F_BODY: int = 40
-const F_BUTTON: int = 42
-const F_SMALL: int = 32
+# Display sizes come DOWN from the portrait scale (a 128 px title was 11% of a
+# 1170 px-tall viewport — it ate the header), while the reading sizes hold or go
+# UP, because the complaint was never that headings were small.
+const F_TITLE: int = 96
+const F_SUPER: int = 64
+const F_HEAD: int = 50
+const F_NUM: int = 56
+const F_BODY: int = 40                      # ~13 pt on glass
+const F_BUTTON: int = 44
+const F_SMALL: int = 36                     # raised from 32: this is the floor
+                                            # for anything carrying information
 
 # --- metrics ------------------------------------------------------------------
-const TAP: int = 132                        # 44 pt at 3x; the floor for anything tappable
+# TAP does NOT shrink with the viewport. 132 px is Apple's 44 pt minimum and a
+# thumb is the same size whichever way the phone is held; if something cannot
+# fit at TAP, the layout is wrong, not the target.
+const TAP: int = 132
 const TAP_SMALL: int = 112                  # secondary actions inside a row
-const GAP: int = 22
-const PAD: int = 30
+const GAP: int = 20
+const PAD: int = 34
 const RADIUS: int = 20
-const ROW_H: int = 190                      # one list row, three lines of text
+const ROW_H: int = 150                      # two lines; at 190 only six rows fit
+                                            # the 1170 px landscape budget
+
+# --- landscape layout ---------------------------------------------------------
+## Width of a side column (hero preview, filters, detail panes). Two of these
+## plus gaps still leave a wide middle, which is the point of landscape.
+const COL_W: int = 760
+## Safe inset from the long edges. Landscape puts the notch and the home
+## indicator on the SIDES, and a thumb wraps around each edge, so the usable
+## band is narrower horizontally than the viewport suggests.
+const SAFE_X: int = 120
+const SAFE_Y: int = 40
 
 
 # ------------------------------------------------------------------------------

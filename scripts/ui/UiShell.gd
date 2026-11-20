@@ -244,7 +244,13 @@ func _launch(arg: Variant) -> void:
 	# set() rather than direct assignment: these are @export vars on Play.gd,
 	# which this layer is not allowed to depend on by type.
 	_play.set("world_seed", Campaign.region_seed(roster.crystal_seed, region))
-	_play.set("biome", Campaign.biome_at(region))
+	# THE DREAD CURVE ENTERS THE GAME HERE, in one line, and this is the only
+	# place it can. Biome.tag() stamps the map's dread onto the biome id, and
+	# every renderer downstream — terrain palette, props, ground cover, sky, fog,
+	# key light — already resolves ids through Biome.get_biome(), so all of them
+	# shift together off the single number Campaign.dread() gave this map. Pass
+	# the bare id instead and map 100 is lit exactly like map 1.
+	_play.set("biome", Biome.tag(Campaign.biome_at(region), Campaign.dread(region)))
 	_play.set("hero", who)
 	add_child(_play)
 
