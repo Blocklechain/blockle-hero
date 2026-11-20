@@ -1,0 +1,219 @@
+name: Blockle Hero iOS TestFlight
+
+# Godot 4.7.2 project. Godot generates the Xcode project from
+# export_presets.cfg; xcodebuild then archives it UNSIGNED and signs at export
+# with the App Store Connect API key, which is the only way a team with no
+# registered devices can produce a distribution build. Bundle org.blockle.hero,
+# team B87ALX4XW9.
+#
+# REQUIRED SECRETS (copy from the Blocklechain/blockle repo):
+#   ASC_KEY_BASE64  — base64 of AuthKey_<id>.p8
+#   ASC_KEY_ID
+#   ASC_ISSUER_ID
+#
+# The app record must already exist in App Store Connect. altool is the
+# authoritative check: with no record it fails with "Cannot determine the Apple
+# ID from Bundle ID". The signed IPA is kept as an artifact either way.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'scenes/**'
+      - 'assets/**'
+      - 'project.godot'
+      - 'export_presets.cfg'
+      - 'ExportOptions.plist'
+      - '.github/workflows/ios-testflight.yml'
+
+concurrency:
+  group: blockle-hero-ios
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # WITHOUT THIS THE BUILD IS SILENTLY WRONG. actions/checkout defaults
+          # to lfs:false, which leaves every hero model as a ~130-byte pointer
+          # file. Godot would import 139 broken files and ship a game with an
+          # empty roster — and nothing would fail until someone launched it.
+          lfs: true
+
+      - name: Verify the hero models really arrived (not LFS pointers)
+        run: |
+          set -eo pipefail
+          COUNT="$(ls assets/heroes/animated/*.glb 2>/dev/null | wc -l | xargs)"
+          echo "found $COUNT .glb"
+          [ "$COUNT" = "139" ] || { echo "::error::expected 139 hero models, found $COUNT"; exit 1; }
+          # A pointer file is tiny; a real model is megabytes. Checking the
+          # SMALLEST file catches a partial LFS fetch, which a total-size check
+          # would not.
+          SMALLEST="$(du -k assets/heroes/animated/*.glb | sort -n | head -1 | cut -f1)"
+          echo "smallest model: ${SMALLEST} KiB"
+          [ "$SMALLEST" -gt 100 ] || { echo "::error::LFS content missing — smallest .glb is ${SMALLEST} KiB, so these are pointer files"; exit 1; }
+          # The runtime roster and the files on disk must agree exactly.
+          python3 - <<'PY'
+          import json, pathlib
+          roster = json.load(open("assets/heroes/roster.json"))
+          have = {p.stem for p in pathlib.Path("assets/heroes/animated").glob("*.glb")}
+          missing = sorted(set(roster) - have)
+          extra = sorted(have - set(roster))
+          print(f"roster={len(roster)} on-disk={len(have)}")
+          assert not missing, f"in roster but not on disk: {missing[:10]}"
+          assert not extra, f"on disk but not in roster: {extra[:10]}"
+          print("roster matches the shipped models exactly")
+          PY
+
+      - name: Select newest Xcode (26 or later)
+        run: |
+          set -eo pipefail
+          # Highest installed Xcode with major >= 26, never a pinned version:
+          # Apple's ITMS-90725 requires the iOS 27 SDK from April 2027, and a
+          # hard pin would keep building against an older SDK until uploads
+          # simply started failing.
+          XC=""
+          for cand in $(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V -r); do
+            ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+                   "$cand/Contents/version.plist" 2>/dev/null || true)"
+            [ -z "$ver" ] && continue
+            if [ "${ver%%.*}" -ge 26 ] 2>/dev/null; then
+              XC="$cand"; echo "selected Xcode $ver -> $cand"; break
+            fi
+          done
+          if [ -z "$XC" ]; then
+            echo "::error::No Xcode 26 or newer on this runner."
+            ls -d /Applications/Xcode*.app || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
+      - name: Cache Godot + export templates
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/Library/Application Support/Godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-macos
+
+      - name: Install Godot ${{ env.GODOT_VERSION }} and the iOS export template
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          set -eo pipefail
+          V="${GODOT_VERSION}"
+          BASE="https://github.com/godotengine/godot/releases/download/${V}-stable"
+          mkdir -p ~/godot && cd ~/godot
+          curl -fsSL -o godot.zip "${BASE}/Godot_v${V}-stable_macos.universal.zip"
+          unzip -q godot.zip
+          curl -fsSL -o templates.tpz "${BASE}/Godot_v${V}-stable_export_templates.tpz"
+          unzip -q templates.tpz
+          DEST="$HOME/Library/Application Support/Godot/export_templates/${V}.stable"
+          mkdir -p "$DEST"
+          mv templates/* "$DEST/"
+          ls "$DEST" | head
+          # The iOS template is the one thing whose absence makes the export
+          # fail late and cryptically.
+          test -f "$DEST/ios.zip" || { echo "::error::ios.zip export template missing"; exit 1; }
+
+      - name: Locate the Godot binary
+        run: |
+          set -eo pipefail
+          GODOT="$(find ~/godot -name 'Godot*' -type f -perm +111 -path '*MacOS*' | head -1)"
+          [ -z "$GODOT" ] && GODOT="$(find ~/godot -name 'Godot*.app' -maxdepth 2 | head -1)/Contents/MacOS/Godot"
+          test -x "$GODOT" || { echo "::error::Godot binary not found under ~/godot"; exit 1; }
+          echo "GODOT=$GODOT" >> "$GITHUB_ENV"
+          "$GODOT" --version
+
+      - name: Import assets
+        run: |
+          set -eo pipefail
+          # Two passes: the first import of 139 rigged glTF files also extracts
+          # their embedded textures, and resources that reference assets created
+          # during that pass only resolve on a second run.
+          "$GODOT" --headless --path . --import || true
+          "$GODOT" --headless --path . --import
+          echo "imported $(ls .godot/imported/*.scn 2>/dev/null | wc -l | xargs) scenes"
+
+      - name: Headless checks
+        run: |
+          set -eo pipefail
+          # bundlecheck blanks the dev fallback paths, so it fails if a hero can
+          # only be loaded from the authoring volume rather than from res:// —
+          # exactly the bug that shipped a roster of invisible heroes.
+          "$GODOT" --headless --path . --script tools/bundlecheck.gd
+          "$GODOT" --headless --path . --script tools/metatest.gd
+          "$GODOT" --headless --path . --script tools/combattest.gd
+
+      - name: Export the Xcode project
+        run: |
+          set -eo pipefail
+          mkdir -p build/ios
+          "$GODOT" --headless --path . --export-release "iOS" build/ios/BlockleHero.ipa
+          ls -lh build/ios/
+          test -f build/ios/BlockleHero.pck || { echo "::error::no PCK produced"; exit 1; }
+          # Guard the payload: a PCK far smaller than the models means the
+          # heroes did not make it in.
+          SZ="$(du -m build/ios/BlockleHero.pck | cut -f1)"
+          echo "PCK size: ${SZ} MiB"
+          [ "$SZ" -gt 400 ] || { echo "::error::PCK is only ${SZ} MiB — hero assets are missing"; exit 1; }
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          set -eo pipefail
+          if [ -z "$ASC_KEY_BASE64" ] || [ -z "$ASC_KEY_ID" ]; then
+            echo "::error::ASC_KEY_BASE64 / ASC_KEY_ID are not set. Copy ASC_KEY_BASE64, ASC_KEY_ID and ASC_ISSUER_ID from the Blocklechain/blockle repo secrets."
+            exit 1
+          fi
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_BASE64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          echo "key installed"
+
+      - name: Archive + export signed IPA
+        env:
+          KID: ${{ secrets.ASC_KEY_ID }}
+          ISS: ${{ secrets.ASC_ISSUER_ID }}
+          BN: ${{ github.run_number }}
+        run: |
+          set -eo pipefail
+          KEY="$HOME/.appstoreconnect/private_keys/AuthKey_${KID}.p8"
+          cd build/ios
+          xcodebuild -project BlockleHero.xcodeproj -scheme BlockleHero -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/App.xcarchive archive \
+            CURRENT_PROJECT_VERSION="$BN" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          xcodebuild -exportArchive -archivePath build/App.xcarchive -exportPath build/ipa \
+            -exportOptionsPlist "$GITHUB_WORKSPACE/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY" -authenticationKeyID "$KID" -authenticationKeyIssuerID "$ISS"
+          ls -lh build/ipa/*.ipa
+
+      - name: Upload to TestFlight
+        env:
+          KID: ${{ secrets.ASC_KEY_ID }}
+          ISS: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -eo pipefail
+          IPA="$(ls build/ios/build/ipa/*.ipa | head -1)"
+          xcrun altool --upload-app -f "$IPA" -t ios --apiKey "$KID" --apiIssuer "$ISS" --verbose
+
+      - name: Upload IPA artifact (backup)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockle-hero-ipa
+          path: build/ios/build/ipa/*.ipa
+          if-no-files-found: ignore

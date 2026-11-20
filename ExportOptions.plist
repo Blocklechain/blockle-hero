@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>teamID</key><string>B87ALX4XW9</string>
+  <!-- Automatic signing at EXPORT time only. The archive is built unsigned,
+       so Xcode never looks for a development profile (a team with no
+       registered devices has none, and that lookup fails). The App Store
+       Connect API key mints the device-less distribution cert and profile on
+       demand during export. -->
+  <key>signingStyle</key><string>automatic</string>
+  <key>destination</key><string>export</string>
+  <key>uploadSymbols</key><true/>
+</dict>
+</plist>
