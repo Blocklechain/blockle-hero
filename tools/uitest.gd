@@ -569,7 +569,12 @@ func _handoff(heroes: PackedStringArray) -> void:
 	shell.goto(UiRoute.CAMPAIGN, hero)
 	await _settle()
 
+	# EARN THE REGION FIRST. The campaign is a sequence now — region 3 is
+	# sealed until 1 and 2 are cleared, so without this the launcher refuses
+	# and this test measures the gate instead of the handoff it is about.
 	var region: int = 3
+	for i in range(region):
+		r.record_map_cleared(Campaign.Tier.NORMAL, i)
 	shell.goto(UiRoute.LAUNCH, {"hero": hero, "region": region,
 		"tier": Campaign.Tier.NORMAL})
 	await _settle(2)

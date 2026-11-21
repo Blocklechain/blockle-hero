@@ -244,6 +244,16 @@ func _launch(arg: Variant) -> void:
 	if not roster.owns(who):
 		toast("Choose a champion first.")
 		return
+	# THE LAST GATE. The campaign screen checks too, but it is not the only
+	# caller — the clear screen's "next stage" comes straight here, and so
+	# would a deep link or a restored session. A rule enforced only in the UI
+	# that happens to be on screen is not a rule.
+	var want_tier: int = clampi(int(spec.get("tier", Campaign.Tier.NORMAL)),
+		0, Campaign.tier_count() - 1)
+	if not roster.is_map_unlocked(want_tier, region):
+		toast("Region %d is sealed until you clear region %d."
+			% [region + 1, region])
+		return
 	roster.save()
 
 	var packed: PackedScene = load(PLAY_SCENE) as PackedScene
@@ -275,8 +285,7 @@ func _launch(arg: Variant) -> void:
 	# The tier is in the launch payload and always has been — the campaign
 	# screen puts it there. It was simply never read, so every difficulty the
 	# player picked was played on Normal.
-	_play.set("tier", clampi(int(spec.get("tier", Campaign.Tier.NORMAL)),
-		0, Campaign.tier_count() - 1))
+	_play.set("tier", want_tier)
 	var prog: HeroProgress = roster.progress(who)
 	if prog != null:
 		_play.set("champion_level", prog.level)

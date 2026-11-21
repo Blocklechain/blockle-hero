@@ -49,6 +49,9 @@ func build() -> void:
 
 	col.add_child(context_strip())
 	_tier = roster.unlocked_tier
+	# Open where the player stopped, not at region 1 — on a half-finished
+	# campaign that is forty taps of scrolling away.
+	_region = roster.furthest_unlocked(_tier)
 
 	var tiers := HBoxContainer.new()
 	tiers.add_theme_constant_override("separation", 10)
@@ -86,6 +89,11 @@ func build() -> void:
 
 func _on_tier(tier: int) -> void:
 	_tier = tier
+	# Each difficulty has its own progress, so the chosen region has to move
+	# with it or the player is left pointing at a map this tier has sealed.
+	_region = roster.furthest_unlocked(_tier)
+	if _list != null:
+		_list.rebind()
 	refresh()
 
 
@@ -136,19 +144,41 @@ func _bind_row(node: Control, i: int) -> void:
 	var row := node as UiListRow
 	row.index = i
 	var chosen: bool = i == _region
+	var cleared: bool = roster.is_map_cleared(_tier, i)
+	var open: bool = roster.is_map_unlocked(_tier, i)
+
+	# A locked map says WHAT opens it. "Locked" on its own leaves the player
+	# guessing whether it is the difficulty, the champion's level or the map
+	# before it, and two of those three are wrong.
+	var note: String = ""
+	if not open:
+		note = "Clear region %d first" % i
+	elif cleared:
+		note = "Cleared"
+	elif chosen:
+		note = "Chosen"
+
 	row.configure(Biome.display_name(Campaign.biome_at(i)),
 		"%s · region %d of %d" % [Campaign.act_name(Campaign.act_of(i)), i + 1,
 			Campaign.region_count()],
 		"L %d" % Campaign.enemy_level(i, _tier),
-		HeroTheme.ACCENT if chosen else HeroTheme.LINE,
-		-1, "Chosen" if chosen else "")
-	row.note_colour(HeroTheme.ACCENT)
-	row.value_colour(HeroTheme.DIM)
-	row.show_chevron(not chosen)
+		HeroTheme.ACCENT if chosen else (
+			HeroTheme.LINE if open else HeroTheme.FAINT),
+		-1, note)
+	row.title_colour(HeroTheme.TEXT if open else HeroTheme.FAINT)
+	row.note_colour(HeroTheme.GOLD if cleared else (
+		HeroTheme.ACCENT if open else HeroTheme.FAINT))
+	row.value_colour(HeroTheme.DIM if open else HeroTheme.FAINT)
+	row.show_chevron(open and not chosen)
 
 
 func _on_row(i: int) -> void:
-	_region = clampi(i, 0, Campaign.region_count() - 1)
+	var want: int = clampi(i, 0, Campaign.region_count() - 1)
+	if not roster.is_map_unlocked(_tier, want):
+		notified.emit("Region %d is sealed until you clear region %d."
+			% [want + 1, want])
+		return
+	_region = want
 	_list.rebind()
 	refresh()
 
@@ -160,6 +190,13 @@ func _on_enter() -> void:
 	if not Campaign.can_enter(_tier, p, roster.unlocked_tier):
 		notified.emit(Campaign.entry_blocked_reason(_tier, p,
 			roster.unlocked_tier))
+		return
+	# Checked again on the way in, not only when the row was tapped: the tier
+	# can be changed after a region is chosen, and region 40 being open on
+	# Normal says nothing about region 40 on Infernal.
+	if not roster.is_map_unlocked(_tier, _region):
+		notified.emit("Region %d is sealed until you clear region %d on %s."
+			% [_region + 1, _region, Campaign.tier_name(_tier)])
 		return
 	navigate.emit(UiRoute.LAUNCH, {"hero": hero, "region": _region,
 		"tier": _tier})

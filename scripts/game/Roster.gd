@@ -278,6 +278,34 @@ static func maps_per_difficulty() -> int:
 	return Campaign.region_count()
 
 
+## Can this map be entered yet?
+##
+## THE CAMPAIGN IS A SEQUENCE. The first map of a difficulty is always open;
+## every other one needs the map before it cleared on that same difficulty.
+## Without this the whole hundred-map ladder was a menu — a new player could
+## tap region 100 from a standing start, walk into enemies forty levels above
+## them, and never see the maps the curve was built out of.
+##
+## Per DIFFICULTY, deliberately. Clearing map 7 on Normal does not open map 7
+## on Nightmare; replaying a difficulty means replaying it.
+func is_map_unlocked(tier: int, index: int) -> bool:
+	if index <= 0:
+		return true
+	if index >= maps_per_difficulty():
+		return false
+	return is_map_cleared(tier, index - 1)
+
+
+## The furthest map that can be entered on `tier` — the first uncleared one.
+## What the campaign screen opens on, so the player lands where they left off
+## rather than back at map 1 every time.
+func furthest_unlocked(tier: int) -> int:
+	for i in range(maps_per_difficulty()):
+		if not is_map_cleared(tier, i):
+			return i
+	return maps_per_difficulty() - 1
+
+
 func is_map_cleared(tier: int, index: int) -> bool:
 	return (cleared_maps.get(tier, {}) as Dictionary).has(index)
 
