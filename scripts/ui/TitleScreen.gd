@@ -216,11 +216,15 @@ func _backdrop() -> void:
 	_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Oversized, so there is something to drift INTO. A plate scaled exactly
 	# to the screen would show a bar of background the moment it moved.
-	_art.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_art.offset_right = size.x * DRIFT
-	_art.offset_bottom = size.y * DRIFT
+	# OUT TO THE GLASS. The shell insets every screen by the safe area, which
+	# on a title plate reads as a framed picture hanging inside the app rather
+	# than as the app's own surface — there was a dark border down all four
+	# sides of the one full-bleed image in the game.
 	add_child(_art)
 	move_child(_art, 0)
+	bleed(_art)
+	_art.offset_right += size.x * DRIFT
+	_art.offset_bottom += size.y * DRIFT
 
 	# A GRADIENT, NOT A FLAT VEIL. The old screen dimmed the whole painting to
 	# 32% so that type centred on top of it stayed legible — which made the
@@ -245,10 +249,10 @@ func _backdrop() -> void:
 	scrim.texture = tex
 	scrim.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	scrim.stretch_mode = TextureRect.STRETCH_SCALE
-	scrim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(scrim)
 	move_child(scrim, 1)
+	bleed(scrim)
 
 	# A second wash under the footer, so the buttons sit on something solid
 	# without dimming the sky above them. GRADED, not a rectangle: a flat
@@ -268,8 +272,8 @@ func _backdrop() -> void:
 	foot.texture = dtex
 	foot.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	foot.stretch_mode = TextureRect.STRETCH_SCALE
-	foot.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	foot.offset_top = -420
 	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(foot)
 	move_child(foot, 2)
+	bleed(foot, true, false, true, true)
+	foot.offset_top = size.y - 420.0

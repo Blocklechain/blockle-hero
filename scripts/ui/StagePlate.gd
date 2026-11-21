@@ -57,15 +57,17 @@ func _ready() -> void:
 	_wash = ColorRect.new()
 	_wash.color = Color(HeroTheme.BG.r, HeroTheme.BG.g, HeroTheme.BG.b, 0.72)
 	_wash.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	_wash.offset_top = -190
+	_wash.offset_top = -360
 	_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_wash)
 
 	var caption := VBoxContainer.new()
 	caption.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	caption.offset_top = -170
+	caption.offset_top = -340
 	caption.offset_left = HeroTheme.PAD
 	caption.offset_right = -HeroTheme.PAD
+	# Clear of the Enter button that now sits on the plate's bottom edge.
+	caption.offset_bottom = -150 - HeroTheme.GAP * 2
 	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(caption)
 

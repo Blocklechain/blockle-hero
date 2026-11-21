@@ -70,12 +70,20 @@ const ATTR_COLOUR: Dictionary = {
 # Display sizes come DOWN from the portrait scale (a 128 px title was 11% of a
 # 1170 px-tall viewport — it ate the header), while the reading sizes hold or go
 # UP, because the complaint was never that headings were small.
-const F_TITLE: int = 96
-const F_SUPER: int = 64
-const F_HEAD: int = 50
-const F_NUM: int = 56
-const F_BODY: int = 40                      # ~13 pt on glass
-const F_BUTTON: int = 44
+# SECOND PASS, from device. The display end was still shouting: at 2532 px
+# across a 6.1" screen these are points roughly divided by three, so a 96 px
+# title was 32 pt — magazine-cover size on a phone, taking room from the art
+# and the champion it was labelling.
+#
+# ONLY THE DISPLAY SIZES MOVED. F_SMALL is the documented floor for anything
+# carrying information and F_BODY is already near it; shrinking those would
+# buy a few pixels and cost legibility, which is not the complaint.
+const F_TITLE: int = 66                     # was 96 — ~22 pt on glass
+const F_SUPER: int = 52                     # was 64
+const F_HEAD: int = 42                      # was 50
+const F_NUM: int = 46                       # was 56
+const F_BODY: int = 38                      # ~13 pt on glass
+const F_BUTTON: int = 40                    # was 44
 const F_SMALL: int = 36                     # raised from 32: this is the floor
                                             # for anything carrying information
 
@@ -95,6 +103,10 @@ const ROW_H: int = 150                      # two lines; at 190 only six rows fi
 ## Width of a side column (hero preview, filters, detail panes). Two of these
 ## plus gaps still leave a wide middle, which is the point of landscape.
 const COL_W: int = 760
+## Width of a column whose job is to SHOW something — the live champion, a
+## painted region. Wider than COL_W, which was sized for a panel of numbers:
+## at 760 the champion this game has 139 of was a third of the display.
+const COL_SHOW: int = 980
 ## Safe inset from the long edges. Landscape puts the notch and the home
 ## indicator on the SIDES, and a thumb wraps around each edge, so the usable
 ## band is narrower horizontally than the viewport suggests.

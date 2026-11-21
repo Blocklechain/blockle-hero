@@ -65,7 +65,7 @@ func build() -> void:
 	_count_label = HeroTheme.label("", HeroTheme.F_SMALL, HeroTheme.DIM)
 	_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.add_child(_count_label)
-	var col := split_fixed(card)
+	var col := split_fixed(card, HeroTheme.COL_SHOW)
 
 	var group := ButtonGroup.new()
 	var tabs := HBoxContainer.new()

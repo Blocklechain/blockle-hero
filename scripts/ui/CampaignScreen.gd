@@ -41,11 +41,14 @@ func build() -> void:
 	# Keeping "Enter" in the footer cost a whole row of the 1170 px height, and
 	# the map list — a hundred entries — was getting about one row to show them
 	# in. It also belongs here: the picture and the way in are one thing.
+	# THE PLATE IS THE COLUMN. It used to share the column with the Enter
+	# button stacked under it, so the painting — the whole reason a hundred of
+	# them were generated — got whatever height was left. The button overlays
+	# its lower edge instead: the picture and the way in are one thing, and
+	# saying so costs the art nothing.
 	_plate = StagePlate.new()
-	var card := VBoxContainer.new()
-	card.add_theme_constant_override("separation", HeroTheme.GAP)
-	card.add_child(_plate)
-	var col := split_fixed(card)
+	_plate.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var col := split_fixed(_plate, HeroTheme.COL_SHOW)
 
 	col.add_child(context_strip())
 	_tier = roster.unlocked_tier
@@ -64,7 +67,11 @@ func build() -> void:
 		# Eight names across one column, so the type has to give. These are a
 		# secondary control the player sets once a run, not something read at a
 		# glance mid-fight — "Nightmare" fitting matters more than its size.
-		b.add_theme_font_size_override("font_size", 28)
+		# 24, not 28: the art column got wider and this row got narrower with
+		# it, which clipped "Nightmare" to "Nightmar". Eight difficulty names
+		# have to fit whole — a tier the player cannot read the name of is a
+		# tier they will not choose.
+		b.add_theme_font_size_override("font_size", 24)
 		b.pressed.connect(_on_tier.bind(tier))
 		_tier_buttons.append(b)
 		tiers.add_child(b)
@@ -87,7 +94,14 @@ func build() -> void:
 
 	_enter = HeroTheme.button("", HeroTheme.Btn.PRIMARY, 150)
 	_enter.pressed.connect(_on_enter)
-	card.add_child(_enter)
+	# Anchored across the bottom of the plate rather than added beneath it, so
+	# it covers the part of the painting the caption was already sitting on.
+	_enter.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_enter.offset_top = -150 - HeroTheme.GAP
+	_enter.offset_bottom = -HeroTheme.GAP
+	_enter.offset_left = HeroTheme.GAP
+	_enter.offset_right = -HeroTheme.GAP
+	_plate.add_child(_enter)
 
 	refresh()
 

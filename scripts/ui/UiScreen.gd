@@ -181,13 +181,17 @@ func split_column(left: Control) -> VBoxContainer:
 ## campaign's hundred-map list did exactly that and vanished. Screens whose
 ## right column is a list want this; screens whose right column is prose want
 ## split_column.
-func split_fixed(left: Control) -> VBoxContainer:
+## `width` overrides the default side-column width. Screens whose left column
+## is a LOOK AT THIS — a champion turning, a painted region — pass a bigger
+## one: COL_W was sized for a panel of numbers, and at that width the one
+## thing on the screen worth showing was a third of it.
+func split_fixed(left: Control, width: int = HeroTheme.COL_W) -> VBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", HeroTheme.GAP * 2)
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.add_child(row)
 
-	left.custom_minimum_size = Vector2(HeroTheme.COL_W, 0)
+	left.custom_minimum_size = Vector2(width, 0)
 	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	row.add_child(left)
 
@@ -197,6 +201,39 @@ func split_fixed(left: Control) -> VBoxContainer:
 	col.add_theme_constant_override("separation", HeroTheme.GAP)
 	row.add_child(col)
 	return col
+
+
+## How far the shell has inset this screen from the display edges.
+##
+## Needed by anything that wants to BLEED — a full-screen plate stopped 34 px
+## short of the glass on every side reads as a framed picture hanging in the
+## app rather than as the app's own surface. Read off the live container
+## rather than assumed, because the top and bottom are the device's safe area
+## and differ between a notched phone and an iPad.
+func safe_insets() -> Dictionary:
+	var n: Node = get_parent()
+	while n != null:
+		if n is MarginContainer and n.name == "Safe":
+			var m := n as MarginContainer
+			return {
+				"left": m.get_theme_constant("margin_left"),
+				"right": m.get_theme_constant("margin_right"),
+				"top": m.get_theme_constant("margin_top"),
+				"bottom": m.get_theme_constant("margin_bottom"),
+			}
+		n = n.get_parent()
+	return {"left": 0, "right": 0, "top": 0, "bottom": 0}
+
+
+## Push `node` out to the display edges on the sides named true.
+func bleed(node: Control, left: bool = true, top: bool = true,
+		right: bool = true, bottom: bool = true) -> void:
+	var i: Dictionary = safe_insets()
+	node.set_anchors_preset(Control.PRESET_FULL_RECT)
+	node.offset_left = -float(i["left"]) if left else 0.0
+	node.offset_top = -float(i["top"]) if top else 0.0
+	node.offset_right = float(i["right"]) if right else 0.0
+	node.offset_bottom = float(i["bottom"]) if bottom else 0.0
 
 
 ## The strip that says which champion everything on this screen applies to.

@@ -67,7 +67,7 @@ func build() -> void:
 	_purse = HeroTheme.label("", HeroTheme.F_SMALL, HeroTheme.GOLD)
 	_purse.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	card.add_child(_purse)
-	var col := split_fixed(card)
+	var col := split_fixed(card, HeroTheme.COL_SHOW)
 
 	var group := ButtonGroup.new()
 	var tabs := HBoxContainer.new()
