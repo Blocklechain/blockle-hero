@@ -1,0 +1,179 @@
+extends SceneTree
+# ------------------------------------------------------------------------------
+# The things that are supposed to make a player look up.
+#
+# Each one is checked in the RUNNING SCENE, because every spectacle feature in
+# this project so far has worked perfectly somewhere the player was not.
+#
+#   - the boss telegraphs a slam, and standing in it hurts while stepping out
+#     of it does not. The mechanic IS the dodge; if both outcomes are the same
+#     the warning is decoration.
+#   - a rare drop lights up; a common one does not, because a beacon over
+#     every grey item is lighting, not information.
+#   - a champion who cleared a difficulty carries a visible mark.
+#
+#   godot --headless --path . --script tools/spectacletest.gd
+# ------------------------------------------------------------------------------
+
+const REGION: int = 37
+
+var fails: int = 0
+
+
+func check(label: String, ok: bool, detail: String = "") -> void:
+	if not ok:
+		fails += 1
+	print("  %s %-52s %s" % ["PASS" if ok else "FAIL", label, detail])
+
+
+func _init() -> void:
+	_go.call_deferred()
+
+
+func _go() -> void:
+	var account: Roster = Roster.create(HeroRig.animated_heroes())
+	var who: String = String(account.owned.keys()[0])
+	# A veteran, so the mark has something to show.
+	account.progress(who).tiers_cleared = 2
+
+	var play: Node = load("res://scenes/Play.tscn").instantiate()
+	play.set("world_seed", Campaign.region_seed(4242, REGION))
+	play.set("biome", Biome.tag(Campaign.biome_at(REGION),
+		Campaign.dread(REGION)))
+	play.set("hero", who)
+	play.set("region_index", REGION)
+	play.set("campaign_seed", 4242)
+	play.set("tier", Campaign.Tier.NORMAL)
+	play.set("region_cells", 96)
+	play.roster = account
+	get_root().add_child(play)
+
+	var frames: int = 0
+	while frames < 2400 and play.get("_hero") == null:
+		await process_frame
+		frames += 1
+	var me: HeroController = play.get("_hero")
+	check("the region came up", me != null)
+	if me == null:
+		_done()
+		return
+	if bool(play.get("_flying")):
+		play._cam.skip_flyover()
+		await process_frame
+
+	print("\n=== the veteran is marked ===")
+	var mark: Node = me.get_node_or_null("VeteranMark")
+	check("a champion who cleared a difficulty wears it",
+		mark != null and mark.get_child_count() > 0,
+		"%d rings" % (mark.get_child_count() - 1) if mark != null else "none")
+	# It has to FOLLOW. A mark placed in the world instead of on the champion
+	# is a mark they walk out of.
+	if mark != null:
+		check("...and it is on the champion, not on the ground",
+			mark.get_parent() == me)
+
+	print("\n=== the boss tells you where it is going to hit ===")
+	var boss: HeroController = null
+	for n in play.get_children():
+		if n is HeroController and n != me \
+				and n.scale.y >= Encounter.BOSS_SIZE - 0.001:
+			boss = n
+	check("the map has a boss", boss != null)
+	if boss == null:
+		_done()
+		return
+
+	# Stand in front of it and let the brain decide.
+	boss._place(me.ground_position() + Vector2(6.0, 0.0))
+	play.set("_slam_cd", 0.0)
+	var warned: int = 0
+	for i in range(240):
+		await process_frame
+		if play.get("_slam_at") != Vector2.INF:
+			warned += 1
+			break
+	check("it winds up a slam when you are in range", warned > 0)
+	if warned == 0:
+		_done()
+		return
+
+	var at: Vector2 = play.get("_slam_at")
+	var radius: float = float(play.get("_slam_radius"))
+	var tele: Vfx = null
+	for c in play.get_children():
+		if c is Vfx:
+			tele = c
+	check("...and draws it on the ground before it lands", tele != null)
+
+	# STAND IN IT.
+	me._place(at)
+	var hp_before: float = me.body.health
+	for i in range(240):
+		await process_frame
+		if play.get("_slam_at") == Vector2.INF:
+			break
+	check("standing in it hurts", me.body.health < hp_before,
+		"%.0f -> %.0f" % [hp_before, me.body.health])
+	# ...AND LEAVES YOU ALIVE. Dying to the first telegraph you ever see
+	# teaches nothing, because you never find out it was avoidable.
+	check("...but is survivable from full health", me.body.alive,
+		"%.0f of %.0f left" % [me.body.health, me.body.max_health])
+
+	# STEP OUT OF IT.
+	me.body.health = me.body.max_health
+	play.set("_slam_cd", 0.0)
+	boss._place(me.ground_position() + Vector2(6.0, 0.0))
+	var again: bool = false
+	for i in range(240):
+		await process_frame
+		if play.get("_slam_at") != Vector2.INF:
+			again = true
+			break
+	if again:
+		var spot: Vector2 = play.get("_slam_at")
+		# Well clear, on walkable ground.
+		me._place(spot + Vector2(radius * 2.5, 0.0))
+		var safe_before: float = me.body.health
+		for i in range(240):
+			await process_frame
+			if play.get("_slam_at") == Vector2.INF:
+				break
+		check("...and stepping out of it does not",
+			is_equal_approx(me.body.health, safe_before),
+			"%.0f -> %.0f" % [safe_before, me.body.health])
+	else:
+		check("the boss slammed a second time to test the dodge", false)
+
+	print("\n=== only good loot lights up ===")
+	var ground: Node = play.get("_loot")
+	var before_fx: int = _beacons(play)
+	var common := Loot.Drop.new()
+	common.item = Item.roll(7, 1, 5, Item.Rarity.COMMON, Item.Slot.WEAPON)
+	ground.dropped.emit(common, me.global_position)
+	await process_frame
+	check("a common drop lights nothing", _beacons(play) == before_fx,
+		"%d beacons" % _beacons(play))
+
+	var good := Loot.Drop.new()
+	good.item = Item.roll(7, 2, 5, Item.Rarity.LEGENDARY, Item.Slot.WEAPON)
+	ground.dropped.emit(good, me.global_position)
+	await process_frame
+	check("a legendary drop puts a pillar of light on it",
+		_beacons(play) > before_fx, "%d beacons" % _beacons(play))
+
+	play.queue_free()
+	await process_frame
+	_done()
+
+
+func _beacons(play: Node) -> int:
+	var n: int = 0
+	for c in play.get_children():
+		if c is Vfx:
+			n += 1
+	return n
+
+
+func _done() -> void:
+	print("\n=== %d failure(s) ===" % fails)
+	quit(1 if fails > 0 else 0)

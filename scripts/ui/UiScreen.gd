@@ -28,6 +28,11 @@ signal state_changed()
 ## did. Shown by the shell as a transient line, never as a modal.
 signal notified(text: String)
 
+## Ask the shell to play the champion-arrival sequence. Raised here rather
+## than built by the screen because it covers the WHOLE display, including the
+## currency bar and the tab strip, and a screen owns none of those.
+signal reveal_champion(hero: String, duplicate: bool, gold: int)
+
 
 var roster: Roster = null
 ## The champion this screen acts on. "" on screens that have no subject.

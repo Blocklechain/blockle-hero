@@ -193,6 +193,9 @@ func _build_loot_ground() -> void:
 	_loot.stash = _account.stash
 	_loot.wallet = _account.wallet
 	_loot.collected.connect(_on_loot_collected)
+	# `dropped` was emitted and nothing listened. A good item landed as an orb
+	# among procedurally scattered props and looked exactly like a pebble.
+	_loot.dropped.connect(_on_loot_dropped)
 	_loot.refused.connect(func(text: String) -> void: _hud.set_message(text))
 	add_child(_loot)
 
@@ -229,7 +232,19 @@ func _on_world_ready(root: Node3D, ter: Terrain, plan: Layout) -> void:
 	# until this point — orbs dropped before it simply wait, which is correct.
 	_loot.follow = _hero
 	_hud.bind_champion(_hero, _cam)
-	_hud.set_message("Drag anywhere on the left to move. The keys on the right are your four actions. Pinch to zoom.")
+	# THE REGION IS A PLACE, and until now the player met all hundred of them
+	# from the same three-metre bubble around their own feet. Sweep from the
+	# boss end of the lane back to where they are standing, so the map they
+	# are about to walk is seen once, whole, before they walk it.
+	var boss_node: Dictionary = plan.node_of_kind(Layout.BOSS)
+	var from: Vector2 = boss_node.get("pos", Vector2.INF)
+	if from != Vector2.INF and from.distance_to(at) > 12.0:
+		_flying = true
+		_cam.flyover_done.connect(_on_flyover_done, CONNECT_ONE_SHOT)
+		_cam.flyover(from, at)
+		_hud.set_message("%s" % Campaign.region_title(region_index))
+	else:
+		_on_flyover_done()
 
 	# AFTER the champion exists: every spawn is placed relative to where the
 	# player stands, so this cannot run before `at` is a real position.
@@ -267,6 +282,51 @@ func _give_combat_body(name: String) -> void:
 	_loot.champion_level = body.level
 	_hero.setup_combat(body, cls, name)
 	_hero.cast_landed.connect(_on_cast_landed)
+	_remark()
+
+
+## The sweep is over — hand the region to the player.
+func _on_flyover_done() -> void:
+	_flying = false
+	_cam.snap_to_target()
+	_hud.set_message("Drag anywhere on the left to move. The keys on the "
+		+ "right are your four actions. Pinch to zoom.")
+
+
+## Put the veteran rings on the champion, or take them off.
+##
+## A champion who has cleared a whole difficulty is carrying something no
+## amount of gear can buy, and until now the only place that showed was a
+## number on a screen they were not looking at.
+func _remark() -> void:
+	if _mark != null and is_instance_valid(_mark):
+		_mark.queue_free()
+	_mark = null
+	if _hero == null or _hero.rig == null:
+		return
+	var p: HeroProgress = _account.progress(_hero.rig.hero_name)
+	if p == null or p.tiers_cleared <= 0:
+		return
+	_mark = Vfx.veteran_mark(_hero, p.tiers_cleared)
+
+
+## A drop landed. Light it if it is worth crossing the map for.
+##
+## Common and uncommon get nothing on purpose: a beacon over every grey item
+## is not a beacon, it is lighting, and the colour stops meaning anything.
+func _on_loot_dropped(drop: Loot.Drop, at: Vector3) -> void:
+	if drop == null or not drop.has_item():
+		return
+	var rarity: int = drop.item.rarity
+	if rarity < Item.Rarity.RARE:
+		return
+	Vfx.loot_beacon(self, at,
+		Item.RARITY_COLOURS.get(rarity, Color.WHITE))
+	# Named on the HUD as well as lit: the colour says how good, the name says
+	# what, and at a distance the pillar is all you can see.
+	_hud.set_message("%s — %s" % [drop.item.item_name,
+		String(Item.RARITY_NAMES.get(rarity, "?"))])
+	Audio.play(Audio.Cue.CAST, 1.4 + 0.12 * float(rarity))
 
 
 # ------------------------------------------------------------------------------
@@ -285,6 +345,28 @@ const REACH: float = 2.6
 ## and 139 rigs asking the pathfinder sixty times a second does not ship.
 const THINK: float = 0.35
 
+## THE BOSS MECHANIC. A boss that is only bigger and tougher is an endurance
+## test; one you have to read is a fight. It winds up a ground slam, the
+## ground tells you exactly where, and you have SLAM_WARN seconds to not be
+## standing there.
+const SLAM_RANGE: float = 16.0
+const SLAM_RADIUS: float = 6.5
+## Long enough to react to on a phone, short enough to be a threat.
+const SLAM_WARN: float = 1.15
+const SLAM_COOLDOWN: float = 7.0
+## Multiplier on the boss's attack power. It hurts, because it is avoidable —
+## an avoidable hit that tickles teaches the player to ignore it.
+const SLAM_POWER: float = 2.4
+const SLAM_MAX_FRACTION: float = 0.55
+## ...but never more than this share of the champion's maximum health.
+##
+## IT MUST BE SURVIVABLE FROM FULL. A telegraph exists to be read and dodged;
+## one that kills outright is not a mechanic the player learns, it is a wipe
+## they resent. Uncapped it took a champion from 194 to 0 in one hit, and a
+## player who dies the first time they see a thing never finds out it was
+## avoidable. Capped, standing in it is a serious mistake with a lesson
+## attached.
+
 var _brain_t: float = 0.0
 ## The enemy id of this map's boss, -1 once it is dead or was never placed.
 var _boss_id: int = -1
@@ -292,6 +374,22 @@ var _kills: int = 0
 ## What the account held on arrival, so the clear screen can report what the
 ## run actually earned rather than what the player happens to own.
 var _snapshot: Dictionary = {}
+
+## The boss's slam: where it is landing, how big, and when it resolves. A
+## telegraph has to be readable for a beat and then LAND, and the landing is
+## resolved here rather than inside the effect so that killing the boss
+## mid-wind-up cancels it.
+var _slam_at: Vector2 = Vector2.INF
+var _slam_radius: float = 0.0
+var _slam_in: float = 0.0
+var _slam_damage: float = 0.0
+var _slam_cd: float = 0.0
+## Freed and rebuilt when the champion's body changes, so a level-up does not
+## leave two sets of rings turning.
+var _mark: Node3D = null
+## True while the opening sweep is running. Input is held: a champion being
+## steered by a player who cannot see them is worse than no flyover.
+var _flying: bool = false
 
 
 ## Put the map's encounters in the world.
@@ -349,6 +447,9 @@ func _think(delta: float) -> void:
 	if _brain_t > 0.0:
 		return
 	_brain_t = THINK
+	# Cooled down on the brain's clock, which is also the clock the slam is
+	# resolved on — see _advance_slam, called every frame from _process.
+	pass
 
 	var here: Vector2 = _hero.ground_position()
 	for n in _enemy_nodes:
@@ -362,6 +463,10 @@ func _think(delta: float) -> void:
 		var notice: float = AGGRO_BOSS if foe.scale.y >= Encounter.BOSS_SIZE \
 			else AGGRO
 		if gap > notice:
+			continue
+		var is_boss: bool = foe.scale.y >= Encounter.BOSS_SIZE - 0.001
+		if is_boss and _slam_cd <= 0.0 and gap <= SLAM_RANGE:
+			_begin_slam(foe, here)
 			continue
 		if gap <= REACH:
 			foe.stop()
@@ -396,6 +501,46 @@ func _choose_action(foe: HeroController, gap: float) -> int:
 			continue
 		return slot
 	return 0
+
+
+## Start a slam at where the champion is standing NOW.
+##
+## Aimed at the present position, not a predicted one: the whole point is that
+## moving is the answer, and a telegraph that tracks you is not a telegraph.
+func _begin_slam(boss: HeroController, at: Vector2) -> void:
+	_slam_at = at
+	_slam_radius = SLAM_RADIUS
+	_slam_in = SLAM_WARN
+	_slam_damage = boss.body.attack_power() * SLAM_POWER
+	_slam_cd = SLAM_COOLDOWN
+	boss.stop()
+	# The wind-up animation is the boss's heaviest ability, so the body reads
+	# as doing something rather than standing still while the ground lights up.
+	boss.use_ability(2, at)
+	Vfx.telegraph(self, Vector3(at.x, boss.position.y + 0.05, at.y),
+		_slam_radius, SLAM_WARN)
+
+
+## Run the wind-up down, and resolve it where it was aimed.
+func _advance_slam(delta: float) -> void:
+	_slam_cd = maxf(_slam_cd - delta, 0.0)
+	if _slam_at == Vector2.INF:
+		return
+	_slam_in -= delta
+	if _slam_in > 0.0:
+		return
+	var at: Vector2 = _slam_at
+	_slam_at = Vector2.INF
+	if _hero == null or _hero.body == null or _hero.is_dead():
+		return
+	# INSIDE OR OUTSIDE, nothing in between. A falloff would make "did I dodge
+	# that" a question the player cannot answer from the picture they were
+	# given, and the picture is the mechanic.
+	if _hero.ground_position().distance_to(at) > _slam_radius:
+		_hud.set_message("Dodged.")
+		return
+	_hero.body.take_hit(minf(_slam_damage,
+		_hero.body.max_health * SLAM_MAX_FRACTION), "Slam")
 
 
 ## An enemy's swing lands. Same resolution path as the champion's, with the
@@ -688,6 +833,17 @@ func _aim_point(ability: Ability = null) -> Vector2:
 ##
 ## Nothing is consumed here. This is an observer, not a handler.
 func _input(e: InputEvent) -> void:
+	# A tap during the sweep means "I have seen this". Consumed, so the same
+	# tap does not also order a move the instant control returns.
+	if _flying:
+		var tapped: bool = (e is InputEventScreenTouch
+			and (e as InputEventScreenTouch).pressed) \
+			or (e is InputEventMouseButton
+				and (e as InputEventMouseButton).pressed)
+		if tapped:
+			_cam.skip_flyover()
+			get_viewport().set_input_as_handled()
+		return
 	if not _holding:
 		return
 	if e is InputEventScreenTouch:
@@ -829,6 +985,13 @@ func _use(slot: int) -> void:
 
 
 func _process(d: float) -> void:
+	if _flying:
+		# Nothing else runs during the sweep: no auto-attack, no brain, no
+		# held-finger move orders. The enemies are not yet the player's
+		# problem and the champion must still be standing where the sweep
+		# ends when it hands over.
+		return
+
 	# Held finger: keep re-issuing toward where it is now, so dragging steers
 	# rather than requiring a tap per step. Re-pathing every frame would be
 	# wasteful, so only when the target has moved meaningfully.
@@ -837,6 +1000,7 @@ func _process(d: float) -> void:
 			_order_move(_hold_at)
 	_auto_attack()
 	_think(d)
+	_advance_slam(d)
 
 
 ## Swing at whatever is standing next to you, without being told.

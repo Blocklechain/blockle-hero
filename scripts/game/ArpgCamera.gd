@@ -72,6 +72,59 @@ static func stick_to_world(dir: Vector2) -> Vector2:
 	return right * dir.x + fwd * dir.y
 
 
+# ------------------------------------------------------------------------------
+# The opening flyover
+# ------------------------------------------------------------------------------
+
+## Seconds the sweep takes. Short on purpose — this plays before every single
+## region, and the hundredth time it has to be over before it is a nuisance.
+const FLY_TIME: float = 2.6
+
+var _fly_from: Vector3 = Vector3.ZERO
+var _fly_to: Vector3 = Vector3.ZERO
+var _fly_t: float = -1.0
+
+## Emitted when the sweep finishes and the camera returns to following.
+signal flyover_done()
+
+
+## Sweep from `from` to `to` on the ground, then hand back to the follow.
+##
+## 100 generated lane maps, each with its own terrain, palette, props and
+## dread band — and the player met every one of them from the same
+## three-metre bubble around their own feet, which makes a generated world
+## feel exactly like a corridor. This is the one chance to show that the map
+## is a place.
+##
+## Running it means the champion CANNOT be driven yet; Play holds input until
+## flyover_done, because a player steering a champion they cannot see is
+## worse than no flyover at all.
+func flyover(from: Vector2, to: Vector2) -> void:
+	if terrain == null:
+		flyover_done.emit()
+		return
+	_fly_from = Vector3(from.x, terrain.height_at(from) + HEIGHT_BIAS, from.y)
+	_fly_to = Vector3(to.x, terrain.height_at(to) + HEIGHT_BIAS, to.y)
+	_fly_t = 0.0
+	_look = _fly_from
+	_apply()
+
+
+func is_flying() -> bool:
+	return _fly_t >= 0.0
+
+
+## End it early. The player tapping during the flyover means "I have seen
+## this", and the only correct response is to be playing immediately.
+func skip_flyover() -> void:
+	if _fly_t < 0.0:
+		return
+	_fly_t = -1.0
+	_look = _fly_to
+	_apply()
+	flyover_done.emit()
+
+
 func snap_to_target() -> void:
 	if target == null:
 		return
@@ -80,6 +133,22 @@ func snap_to_target() -> void:
 
 
 func _process(delta: float) -> void:
+	if _fly_t >= 0.0:
+		_fly_t += delta
+		var k: float = clampf(_fly_t / FLY_TIME, 0.0, 1.0)
+		# Eased at both ends: a linear dolly reads as a camera being dragged,
+		# an eased one reads as a shot.
+		var e: float = k * k * (3.0 - 2.0 * k)
+		_look = _fly_from.lerp(_fly_to, e)
+		# Pulled back at the start and settling to normal, so the sweep opens
+		# wide on the region and closes on the champion.
+		_zoom = lerpf(ZOOM_MAX, 1.0, e)
+		_zoom_want = 1.0
+		_apply()
+		if k >= 1.0:
+			_fly_t = -1.0
+			flyover_done.emit()
+		return
 	if target == null:
 		return
 	# Critically-damped-ish follow. Framerate independent, so the camera does

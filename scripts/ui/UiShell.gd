@@ -185,6 +185,7 @@ func _go(route: String, arg: Variant = null) -> void:
 	_screen.navigate.connect(_go)
 	_screen.state_changed.connect(_on_state_changed)
 	_screen.notified.connect(toast)
+	_screen.reveal_champion.connect(_on_reveal_champion)
 	_host.add_child(_screen)
 	# FILL THE HOST, EXPLICITLY, AFTER PARENTING.
 	#
@@ -222,6 +223,28 @@ func _on_state_changed() -> void:
 	_bar.refresh()
 	if not roster.save():
 		toast("Could not save — your progress is still in this session.")
+
+
+## Play a champion's arrival over everything.
+##
+## The menus keep running underneath but cannot be touched: the reveal covers
+## the full rect and stops input, so a tap meant for "Continue" cannot land on
+## the crystal button behind it and open another one.
+func _on_reveal_champion(hero: String, duplicate: bool, gold: int) -> void:
+	if hero == "":
+		return
+	var screen := RevealScreen.new()
+	screen.name = "RevealScreen"
+	_overlay.add_child(screen)
+	screen.reveal(hero, duplicate, gold)
+	screen.dismissed.connect(func() -> void:
+		screen.queue_free()
+		# Refreshed AFTER the reveal, not before: the roster list behind it
+		# would otherwise visibly gain a row while the player is still being
+		# told which champion it is.
+		_bar.refresh()
+		if _screen != null:
+			_screen.refresh())
 
 
 func toast(text: String) -> void:

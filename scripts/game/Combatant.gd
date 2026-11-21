@@ -224,6 +224,20 @@ func strike(target: Combatant, multiplier: float = 1.0,
 	return {"damage": dealt, "crit": crit, "dodged": false, "killed": killed}
 
 
+## Damage from something that is not a weapon swing — a boss slam, a trap,
+## anything the WORLD does to you rather than another combatant's attack.
+##
+## Mitigated like any other hit, and routed through the same _take_raw as
+## strike() so shields soak it, the damage number appears, and death fires
+## exactly once. A caller that reached for _take_raw directly would skip the
+## armour and quietly make every piece of gear worthless against the one
+## attack the player is meant to build around.
+func take_hit(amount: float, source: String) -> bool:
+	if not alive or amount <= 0.0:
+		return false
+	return _take_raw(amount * (1.0 - mitigation()), false, source)
+
+
 ## Apply damage that has already been mitigated. Returns true if this killed.
 func _take_raw(amount: float, crit: bool, source: String) -> bool:
 	if not alive or amount <= 0.0:

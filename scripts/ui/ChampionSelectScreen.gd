@@ -244,14 +244,14 @@ func _open_crystal() -> void:
 		notified.emit("No spawn crystals to open.")
 		return
 	var id: String = String(result.get("hero", ""))
-	if bool(result.get("duplicate", false)):
-		notified.emit("%s again — converted to %s gold."
-			% [ChampionName.of(id), HeroTheme.money(int(result.get("gold", 0)))])
-	else:
-		notified.emit("%s — %s %s joins your roster."
-			% [ChampionName.of(id), Champion.rarity_name(id),
-				HeroClass.display_name(HeroClass.for_hero(id))])
-	mutated()
+	# THE ARRIVAL IS THE PRODUCT. This used to be a line in the toast strip:
+	# the most exciting thing that can happen in the game, announced with less
+	# ceremony than picking up a sword.
+	reveal_champion.emit(id, bool(result.get("duplicate", false)),
+		int(result.get("gold", 0)))
+	# No mutated() here — the reveal refreshes when it closes, so the list
+	# behind it does not visibly gain a row while the player is still being
+	# told what they got.
 
 
 ## Put `id` in the preview. Called on refresh and whenever a row is touched, so

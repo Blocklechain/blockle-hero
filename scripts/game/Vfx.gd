@@ -699,6 +699,188 @@ static func _dome(sig: Dictionary, at: Vector2) -> Vfx:
 
 
 # ------------------------------------------------------------------------------
+# Standing effects — things that are not a cast
+# ------------------------------------------------------------------------------
+
+## A column of light marking where something worth walking over landed.
+##
+## Loot fell as an orb among the props of a procedurally scattered world and
+## was, visually, indistinguishable from a pebble. The one thing an action RPG
+## has to get right is that a good drop STOPS YOU — this is that, in the
+## item's own rarity colour, so the colour tells you how far out of your way
+## to go before you are close enough to read the name.
+##
+## Not capped by MAX_LIVE: a beacon is information, not decoration, and the
+## one time it would be dropped is the fight busy enough to lose the item in.
+static func loot_beacon(parent: Node, at: Vector3, colour: Color,
+		life: float = 9.0) -> Vfx:
+	if parent == null or not parent.is_inside_tree():
+		return null
+	var fx := Vfx.new(life)
+	fx.position = at
+
+	var col := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.0
+	cyl.bottom_radius = 0.42
+	cyl.height = 1.0
+	cyl.radial_segments = 10
+	cyl.rings = 1
+	col.mesh = cyl
+	var mat: StandardMaterial3D = _glow(colour, 2.0)
+	col.material_override = mat
+	fx.add_child(col)
+
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.56
+	torus.outer_radius = 0.68
+	torus.rings = 16
+	torus.ring_segments = 5
+	ring.mesh = torus
+	var rmat: StandardMaterial3D = _glow(colour, 2.6)
+	ring.material_override = rmat
+	fx.add_child(ring)
+
+	fx._on_tick = func(_n: Vfx, k: float) -> void:
+		# Snaps up, then breathes for as long as the item is on the ground.
+		var rise: float = clampf(k / 0.06, 0.0, 1.0)
+		var breathe: float = 0.88 + 0.12 * sin(k * life * 3.4)
+		col.scale = Vector3(breathe, 7.0 * rise, breathe)
+		col.position.y = 3.5 * rise
+		# Only the last tenth fades, so the beacon does not quietly dim out
+		# from the moment it appears.
+		var out: float = clampf((k - 0.9) / 0.1, 0.0, 1.0)
+		mat.albedo_color = Color(colour, (1.0 - out) * 0.5)
+		rmat.albedo_color = Color(colour, (1.0 - out) * 0.9)
+		ring.scale = Vector3.ONE * (1.0 + 0.1 * sin(k * life * 2.2))
+
+	_live += 1
+	parent.add_child(fx)
+	return fx
+
+
+## WHERE THE BOSS IS ABOUT TO HIT, drawn before it hits.
+##
+## A boss that is only bigger and tougher is an endurance test. A boss you
+## have to READ is a fight. This fills from the centre outward over `warn`
+## seconds and the player's job is to not be standing in it when it finishes —
+## which is a decision, which is the thing the boss fights were missing.
+##
+## Returns the node so the caller can ask where and how big it was; the
+## damage is the caller's business, because a telegraph that resolved its own
+## hit would be a telegraph that cannot be interrupted by killing the boss.
+static func telegraph(parent: Node, at: Vector3, radius: float,
+		warn: float) -> Vfx:
+	if parent == null or not parent.is_inside_tree():
+		return null
+	var fx := Vfx.new(warn + 0.22)
+	fx.position = at
+
+	var danger := Color(1.0, 0.26, 0.18)
+
+	var edge := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.93
+	torus.outer_radius = 1.0
+	torus.rings = 28
+	torus.ring_segments = 5
+	edge.mesh = torus
+	var emat: StandardMaterial3D = _glow(danger, 2.4)
+	edge.material_override = emat
+	edge.scale = Vector3(radius, 1.0, radius)
+	fx.add_child(edge)
+
+	var fill := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = 1.0
+	disc.bottom_radius = 1.0
+	disc.height = 0.06
+	disc.radial_segments = 24
+	disc.rings = 1
+	fill.mesh = disc
+	var fmat: StandardMaterial3D = _glow(danger, 1.2)
+	fill.material_override = fmat
+	fx.add_child(fill)
+
+	var span: float = warn / maxf(warn + 0.22, 0.001)
+	fx._on_tick = func(_n: Vfx, k: float) -> void:
+		if k <= span:
+			# Filling. The fill reaching the edge IS the countdown — no number,
+			# no bar, nothing to read, just a shape closing.
+			var f: float = k / maxf(span, 0.001)
+			fill.scale = Vector3(radius * f, 1.0, radius * f)
+			fmat.albedo_color = Color(danger, 0.22 + 0.2 * f)
+			# Pulses faster as it closes.
+			emat.albedo_color = Color(danger,
+				0.55 + 0.45 * absf(sin(k * (6.0 + 22.0 * f))))
+		else:
+			# Landed: the whole disc flashes white and goes.
+			var b: float = (k - span) / maxf(1.0 - span, 0.001)
+			fill.scale = Vector3(radius, 1.0, radius)
+			fmat.albedo_color = Color(1, 1, 1, 1.0 - b)
+			emat.albedo_color = Color(1, 1, 1, 1.0 - b)
+
+	_live += 1
+	parent.add_child(fx)
+	return fx
+
+
+## A standing mark on a champion who has cleared a whole difficulty.
+##
+## Prestige the player can SEE, on the one champion they are looking at for
+## the whole run. Parented to the champion rather than placed, so it walks
+## with them; returned so the caller can free it when the body changes.
+##
+## Deliberately quiet — a thin turning ring at the feet, not a bonfire. It has
+## to survive being on screen for twenty minutes.
+static func veteran_mark(champion: Node3D, tiers: int) -> Node3D:
+	if champion == null or tiers <= 0:
+		return null
+	var mark := Node3D.new()
+	mark.name = "VeteranMark"
+	champion.add_child(mark)
+
+	# Deeper into the ladder, richer the mark: one ring a difficulty, to a
+	# sane ceiling.
+	var rings: int = mini(tiers, 3)
+	var tint: Color = Item.RARITY_COLOURS.get(
+		mini(tiers + 1, Item.Rarity.LEGENDARY), HeroTheme.GOLD)
+	for i in range(rings):
+		var mi := MeshInstance3D.new()
+		var torus := TorusMesh.new()
+		torus.inner_radius = 0.62 + 0.16 * float(i)
+		torus.outer_radius = 0.68 + 0.16 * float(i)
+		torus.rings = 20
+		torus.ring_segments = 4
+		mi.mesh = torus
+		mi.material_override = _glow(tint, 1.5)
+		mi.position.y = 0.05
+		mark.add_child(mi)
+
+	var spin := VeteranSpin.new()
+	spin.rings = mark.get_children()
+	mark.add_child(spin)
+	return mark
+
+
+## Turns the veteran rings. A node rather than a lambda because the mark lives
+## as long as the champion does and nothing else is ticking it.
+class VeteranSpin extends Node:
+	var rings: Array = []
+
+	func _process(delta: float) -> void:
+		for i in range(rings.size()):
+			var n: Node3D = rings[i] as Node3D
+			if n == null:
+				continue
+			# Alternating directions, so the mark reads as moving even when
+			# the champion is standing still.
+			n.rotation.y += delta * (0.6 + 0.3 * float(i)) \
+				* (1.0 if i % 2 == 0 else -1.0)
+
+
+# ------------------------------------------------------------------------------
 # Motes
 # ------------------------------------------------------------------------------
 

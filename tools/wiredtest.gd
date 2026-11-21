@@ -70,6 +70,18 @@ func _go() -> void:
 		_done()
 		return
 
+	# The region now opens with a camera sweep that deliberately holds all
+	# input — nothing fights, nothing moves. Skip it the way a player who has
+	# seen it would, which also exercises the skip path.
+	var flew: bool = bool(play.get("_flying"))
+	check("the region opens with a flyover", flew)
+	if flew:
+		play._cam.skip_flyover()
+		for i in range(4):
+			await process_frame
+		check("...and a tap hands control straight back",
+			not bool(play.get("_flying")))
+
 	print("\n=== effects reach the world, at the right height ===")
 	var foe: HeroController = null
 	for n in play.get_children():

@@ -34,6 +34,15 @@ var _pivot: Node3D
 var _rig: HeroRig = null
 var _hero: String = ""
 var _spin: float = 0.0
+var _cam: Camera3D
+## Multiplier on the camera's distance. 1.0 is the roster thumbnail; the
+## champion-arrival screen pulls in closer, because the same framing that
+## reads as a neat portrait in a list reads as a small figure in a lot of
+## black when it is the only thing on the display.
+var zoom: float = 1.0:
+	set(v):
+		zoom = maxf(v, 0.2)
+		_frame()
 
 
 func _init() -> void:
@@ -68,6 +77,8 @@ func _ready() -> void:
 	cam.rotation_degrees = Vector3(CAM_PITCH, 0.0, 0.0)
 	world.add_child(cam)
 	cam.current = true
+	_cam = cam
+	_frame()
 
 	# Three-point-ish: a warm key from the front left, a cool fill opposite so
 	# the shadowed side does not read as a silhouette, and enough ambient that
@@ -101,6 +112,16 @@ func _ready() -> void:
 
 
 ## Show `hero`. Safe to call before the node is in the tree.
+## Put the camera where `zoom` says.
+func _frame() -> void:
+	if _cam == null:
+		return
+	# DISTANCE ONLY. Scaling the camera's height as well dropped the eye line
+	# as it pulled in, and at the reveal's framing that cut the champion's
+	# head off the top of the display.
+	_cam.position = Vector3(0.0, CAM_HEIGHT, CAM_DISTANCE * zoom)
+
+
 func show_hero(hero: String) -> void:
 	if hero == _hero:
 		return
