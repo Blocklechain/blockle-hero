@@ -306,6 +306,57 @@ func furthest_unlocked(tier: int) -> int:
 	return maps_per_difficulty() - 1
 
 
+# ------------------------------------------------------------------------------
+# Respec
+# ------------------------------------------------------------------------------
+
+## What undoing a build costs, before the per-point part. Deliberately small:
+## the fee exists so that a build is a DECISION, not so that trying a second
+## one is a punishment.
+const RESPEC_BASE: int = 50
+## Added per point being refunded, so a level-60 champion's full rebuild costs
+## real money while a level-3 champion's two points costs pocket change.
+const RESPEC_PER_POINT: int = 25
+
+
+## Gold to refund every point `hero` has spent. Zero when there is nothing to
+## undo, so the UI never has to special-case a free respec it cannot perform.
+func respec_cost(hero: String) -> int:
+	var p: HeroProgress = progress(hero)
+	if p == null:
+		return 0
+	var n: int = p.spent_points()
+	if n <= 0:
+		return 0
+	return RESPEC_BASE + RESPEC_PER_POINT * n
+
+
+## Charge for and perform a respec. Returns "" on success, or the reason it
+## was refused.
+##
+## THE SINGLE CHOKE POINT, for the same reason unlock_with_gems is: the price
+## must be read, checked and taken in one place, or a second caller appears
+## that refunds the points and forgets the gold.
+func respec(hero: String) -> String:
+	var p: HeroProgress = progress(hero)
+	if p == null:
+		return "No such champion."
+	var n: int = p.spent_points()
+	if n <= 0:
+		return "%s has no spent points to refund." % ChampionName.of(hero)
+	var cost: int = respec_cost(hero)
+	if wallet.balance(Wallet.Kind.GOLD) < cost:
+		return "Refunding %s's points costs %d gold — you have %d." % [
+			ChampionName.of(hero), cost, wallet.balance(Wallet.Kind.GOLD)]
+	# Charged BEFORE the points move. If anything below ever fails the player
+	# is out the gold with their build intact, which they can see and report;
+	# the other order silently gives away free respecs forever.
+	if not wallet.spend(Wallet.Kind.GOLD, cost, "respec"):
+		return "Could not take the %d gold." % cost
+	p.respec()
+	return ""
+
+
 func is_map_cleared(tier: int, index: int) -> bool:
 	return (cleared_maps.get(tier, {}) as Dictionary).has(index)
 

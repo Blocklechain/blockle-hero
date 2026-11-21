@@ -30,6 +30,11 @@ var _attr_break: Dictionary = {}       # attr -> Label (where it came from)
 var _attr_plus: Dictionary = {}        # attr -> Button
 var _derived: Dictionary = {}          # key -> Label
 var _respec: Button
+## A respec is irreversible and now costs gold, so the button asks twice: the
+## first press turns it into the warning, the second spends. Same arm-then-
+## confirm the merchant's bulk sell uses, and it needs no modal on a screen
+## that has no room for one.
+var _respec_armed: bool = false
 var _gear_line: Label
 var _preview: HeroPreview
 
@@ -43,6 +48,10 @@ func back_route() -> String:
 
 
 func build() -> void:
+	# A screen entered fresh is never half-way through confirming something.
+	# Leaving and coming back has to cancel the arm, or a stale confirm from
+	# five minutes ago fires on the first tap.
+	_respec_armed = false
 	# THE LOADOUT VIEW: the champion on the left, their numbers on the right.
 	# Gear is deliberately invisible on the champion in play — it moves stats,
 	# not the silhouette — so this screen carries that weight, and seeing the
@@ -202,9 +211,29 @@ func refresh() -> void:
 				innate.get_attr(a), allocated.get_attr(a), gear.get_attr(a)]
 		(_attr_plus[a] as Button).disabled = unspent <= 0
 
-	_respec.text = "Refund %s's %d spent point%s" % [ChampionName.of(hero),
-		p.spent_points(), "" if p.spent_points() == 1 else "s"]
-	_respec.disabled = p.spent_points() <= 0
+	var spent: int = p.spent_points()
+	var cost: int = roster.respec_cost(hero)
+	var purse: int = roster.wallet.balance(Wallet.Kind.GOLD)
+	if spent <= 0:
+		_respec_armed = false
+		_respec.text = "No points spent to refund"
+	elif _respec_armed:
+		# The warning IS the button. It names the price, the number of points
+		# and the fact that it cannot be taken back.
+		_respec.text = "Confirm: spend %s gold to undo all %d point%s — " \
+			% [HeroTheme.money(cost), spent, "" if spent == 1 else "s"] \
+			+ "this cannot be undone"
+	else:
+		_respec.text = "Refund %s's %d spent point%s · %s gold" % [
+			ChampionName.of(hero), spent, "" if spent == 1 else "s",
+			HeroTheme.money(cost)]
+	_respec.disabled = spent <= 0
+	# Shown in the warning colour once armed, and in the gold colour when the
+	# player cannot pay — a button that looks ready and then refuses is worse
+	# than one that says so first.
+	_respec.add_theme_color_override("font_color",
+		HeroTheme.CRYSTAL if _respec_armed else (
+			HeroTheme.TEXT if purse >= cost else HeroTheme.FAINT))
 
 	(_derived["Damage"] as Label).text = "%.0f" % roster.effective_damage(hero)
 	(_derived["Health"] as Label).text = "%.0f" % roster.effective_health(hero)
@@ -235,8 +264,30 @@ func _on_respec() -> void:
 	var p: HeroProgress = roster.progress(hero)
 	if p == null or p.spent_points() <= 0:
 		return
+	if not _respec_armed:
+		# FIRST PRESS IS THE WARNING, never the act. Undoing a build the
+		# player spent twenty levels assembling, by mis-tapping a button next
+		# to the four they use constantly, is the kind of loss that ends a
+		# save.
+		_respec_armed = true
+		var cost: int = roster.respec_cost(hero)
+		if roster.wallet.balance(Wallet.Kind.GOLD) < cost:
+			notified.emit("That costs %s gold. You have %s."
+				% [HeroTheme.money(cost),
+					HeroTheme.money(roster.wallet.balance(Wallet.Kind.GOLD))])
+		else:
+			notified.emit("Press again to undo %s's build for %s gold."
+				% [ChampionName.of(hero), HeroTheme.money(cost)])
+		refresh()
+		return
+
+	_respec_armed = false
 	var n: int = p.spent_points()
-	p.respec()
-	notified.emit("%d point%s returned to %s. Respec is free, by design."
+	var reason: String = roster.respec(hero)
+	if reason != "":
+		notified.emit(reason)
+		refresh()
+		return
+	notified.emit("%d point%s returned to %s."
 		% [n, "" if n == 1 else "s", ChampionName.of(hero)])
 	mutated()

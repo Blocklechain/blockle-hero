@@ -339,10 +339,25 @@ func _champion_sheet(heroes: PackedStringArray) -> void:
 	check("the sheet shows Roster.effective_stats, not its own arithmetic",
 		shown, "STR %.0f" % effective.get_attr(Stats.Attr.STRENGTH))
 
-	check("a free respec is offered", _press(screen, "Refund"))
+	# A respec is PRICED and CONFIRMED now. One press arms the warning and
+	# must change nothing; the second spends the gold and returns the points.
+	var had_spent: int = r.progress(a).spent_points()
+	var quoted: int = r.respec_cost(a)
+	var purse: int = r.wallet.balance(Wallet.Kind.GOLD)
+	check("a respec is offered, with its price on the button",
+		_press(screen, "Refund"))
+	await _settle()
+	check("  and the first press only warns",
+		r.progress(a).spent_points() == had_spent,
+		"%d points still spent" % r.progress(a).spent_points())
+	check("  the second press is the one that acts",
+		_press(screen, "Confirm"))
 	await _settle()
 	check("  and it returns this champion's points",
 		r.progress(a).spent_points() == 0)
+	check("  for the gold it quoted",
+		r.wallet.balance(Wallet.Kind.GOLD) == purse - quoted,
+		"%d gold for %d points" % [quoted, had_spent])
 	await _close(shell)
 
 
