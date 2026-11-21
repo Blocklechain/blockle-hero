@@ -181,8 +181,15 @@ func _screens_build(heroes: PackedStringArray) -> void:
 	check("shell boots on the title screen",
 		shell.current_route() == UiRoute.TITLE
 		and shell.current_screen() is TitleScreen)
-	check("the title screen offers Play",
-		_button_with(shell.current_screen(), "Play") != null)
+	# NOT "Play" any more, and deliberately so: the title says Begin to
+	# someone who has never played and Continue · <region> to someone who
+	# has. Asserting either, because this roster could legitimately be in
+	# either state and the contract is "there is one obvious way in".
+	var way_in: Button = _button_with(shell.current_screen(), "Begin")
+	if way_in == null:
+		way_in = _button_with(shell.current_screen(), "Continue")
+	check("the title screen offers one obvious way in", way_in != null,
+		way_in.text if way_in != null else "no primary button")
 
 	for route in [UiRoute.CHAMPIONS, UiRoute.SHEET, UiRoute.STASH,
 			UiRoute.SHOP, UiRoute.CAMPAIGN, UiRoute.TITLE]:
