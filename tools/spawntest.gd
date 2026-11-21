@@ -42,8 +42,10 @@ func _init() -> void:
 func _go() -> void:
 	# Three maps across the campaign, because the cast, the pack count and the
 	# boss placement all change with depth — map 0 working proves the least.
+	# The last two are the same map at the bottom and top of the difficulty
+	# ladder, which is what makes the kit assertion below mean anything.
 	for spec in [[0, Campaign.Tier.NORMAL], [37, Campaign.Tier.NORMAL],
-			[99, Campaign.Tier.NORMAL]]:
+			[99, Campaign.Tier.NORMAL], [37, Campaign.Tier.OBLIVION]]:
 		await _one(int(spec[0]), int(spec[1]))
 
 	print("\n=== %d failure(s) ===" % fails)
@@ -117,6 +119,36 @@ func _one(region: int, tier: int) -> void:
 			await physics_frame
 		var closed: float = near.ground_position().distance_to(
 			hero.ground_position())
+		# THE DIFFICULTY HAS TO REACH THE BRAIN. Campaign.enemy_actions() being
+		# a correct table proves nothing on its own — the bug this guards is a
+		# chooser that ignores it and swings the basic attack forever.
+		#
+		# Two separate claims, because they fail for different reasons. The
+		# CEILING is absolute: no foe, at any range, may ever reach past what
+		# the tier allows. REACHABILITY is conditional: the top allowed slot
+		# has to actually get picked, but only by a foe that has it off
+		# cooldown — the scene is live, the brain has already been thinking,
+		# and an enemy that just cast is correctly holding its basic.
+		var allowed: int = Campaign.enemy_actions(tier)
+		var over: int = 0
+		var reached: bool = false
+		var eligible: int = 0
+		for f in foes:
+			for gap in [0.5, 3.0, 10.0, 25.0]:
+				if play._choose_action(f, gap) >= allowed:
+					over += 1
+			var top_ab: Ability = f.ability_in_slot(allowed - 1)
+			if top_ab != null and f.cooldown_left(allowed - 1) <= 0.0:
+				eligible += 1
+				if play._choose_action(f, 1.0) == allowed - 1:
+					reached = true
+		check("no enemy reaches past what %s allows"
+			% Campaign.tier_name(tier), over == 0,
+			"%d breaches over %d foes" % [over, foes.size()])
+		check("...and the top action it does allow gets used",
+			reached or eligible == 0,
+			"slot %d, %d foes had it ready" % [allowed - 1, eligible])
+
 		check("an enemy that notices you closes the distance",
 			closed < opened - 1.0 or closed <= float(play.REACH) + 0.5,
 			"%.1f m -> %.1f m" % [opened, closed])

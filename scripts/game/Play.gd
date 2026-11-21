@@ -348,9 +348,37 @@ func _think(delta: float) -> void:
 			continue
 		if gap <= REACH:
 			foe.stop()
-			foe.use_ability(0, here)
+			foe.use_ability(_choose_action(foe, gap), here)
 		elif not foe.is_moving():
 			foe.move_to(here, true)
+
+
+## Which of its actions this enemy uses, out of the ones the difficulty lets it.
+##
+## THE DIFFICULTY IS THE KIT, not just the numbers. Below Merciless an enemy is
+## its basic attack and its signature ability; from Merciless it gains a
+## second; only at Oblivion does it bring everything, which means the stun, the
+## charge and the self-heal all arrive at once and the fight is a different
+## shape rather than the same shape with more health.
+##
+## Within the allowance it prefers the strongest action that is off cooldown
+## and actually in range — highest slot first, since slot order is roughly
+## power order in every kit — and falls back to the basic, which has no
+## cooldown and is therefore always available.
+func _choose_action(foe: HeroController, gap: float) -> int:
+	var allowed: int = Campaign.enemy_actions(tier)
+	for slot in range(allowed - 1, 0, -1):
+		var ab: Ability = foe.ability_in_slot(slot)
+		if ab == null:
+			continue
+		if foe.cooldown_left(slot) > 0.0:
+			continue
+		# A ranged ability used point blank is fine; a short one used from
+		# across the field whiffs and puts itself on cooldown for nothing.
+		if ab.shape != Ability.Shape.SELF and gap > ab.range_m:
+			continue
+		return slot
+	return 0
 
 
 ## An enemy's swing lands. Same resolution path as the champion's, with the
@@ -367,6 +395,25 @@ func _on_enemy_cast(ability: Ability, foe: HeroController) -> void:
 	ctx.targets = targets
 	ctx.positions = PackedVector2Array([_hero.ground_position()])
 	Combat.cast(ability, ctx)
+	_show_cast(ability, foe, _hero.ground_position())
+
+
+## Draw the ability.
+##
+## ONE PLACE FOR BOTH SIDES. An effect the champion gets and the enemies do not
+## tells the player, wrongly, that the enemy attack was a miss — so the player's
+## cast and the enemy's cast come through the same call, and the only thing
+## that differs is whose signature Vfx reads.
+func _show_cast(ability: Ability, caster: HeroController,
+		target: Vector2) -> void:
+	if caster == null or ability == null or caster.rig == null:
+		return
+	var who: String = caster.rig.hero_name
+	if who == "":
+		return
+	Vfx.play(self, ability, who, HeroClass.for_hero(who),
+		caster.ground_position(), caster.rotation.y,
+		target if target != Vector2.INF else caster.ground_position())
 
 
 # ------------------------------------------------------------------------------
@@ -484,6 +531,7 @@ func _on_cast_landed(ability: Ability) -> void:
 	ctx.targets = env["bodies"]
 	ctx.positions = env["points"]
 	Combat.cast(ability, ctx)
+	_show_cast(ability, _hero, _aim_point())
 
 
 ## The nearest living enemy's ground position, or Vector2.INF. Used to turn the

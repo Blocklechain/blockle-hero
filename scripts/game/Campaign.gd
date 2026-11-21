@@ -230,6 +230,27 @@ static func region_seed(campaign_seed: int, index: int) -> int:
 # Difficulty
 # ------------------------------------------------------------------------------
 
+## THE FIRST "HARD" TIER. Below it an enemy fights with two actions; from it
+## they gain a third. Named rather than written as a bare 2 at the call site,
+## because moving the step is a balance decision and it should be one edit.
+const HARD_TIER: int = Tier.MERCILESS
+
+
+## How many of an enemy's four actions it is allowed to use at `tier`.
+##
+## Counts ACTIONS, basic attack included — an enemy always has its basic, so
+## the figures here are "basic + 1", "basic + 2" and the whole kit. Low tiers
+## are a champion and its signature move; Oblivion is the full kit including
+## the stun, the dash and the self-buff, and is meant to be read as a different
+## fight rather than the same fight with bigger numbers.
+static func enemy_actions(tier: int) -> int:
+	if tier >= max_tier():
+		return 4        # Oblivion only: everything they have
+	if tier >= HARD_TIER:
+		return 3        # Merciless and up: one more than the lower tiers
+	return 2
+
+
 static func tier_count() -> int:
 	return Tier.size()
 

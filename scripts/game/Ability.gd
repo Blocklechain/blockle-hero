@@ -71,6 +71,16 @@ var move_distance: float = 0.0
 
 var description: String = ""
 
+## MAGE SPELLS ONLY, -1 on everything else. The element and form a spell was
+## rolled from (MageSpells.Element / MageSpells.Form).
+##
+## They were computed and thrown away, which meant a Frost nova and a Fire nova
+## were indistinguishable to anything downstream — including the effects, which
+## had to fall back to "it is a circle" and draw both the same. Carrying them
+## is what lets a Venom lance look like venom.
+var element: int = -1
+var form: int = -1
+
 
 static func _make(id: String, title: String, slot: int) -> Ability:
 	var a := Ability.new()

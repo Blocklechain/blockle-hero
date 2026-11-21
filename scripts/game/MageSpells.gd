@@ -183,6 +183,7 @@ static func for_hero(hero: String) -> Array[Ability]:
 	s3.id = "%s_self" % hero
 	s3.slot = 3
 	s3.shape = Ability.Shape.SELF
+	s3.element = elem
 	s3.damage_mult = 0.0
 	s3.cooldown = snappedf(12.0 + Rng.range2(seed, 8, 43, 0.0, 4.0), 0.1)
 	# Element decides what "defend yourself" means for this mage.
@@ -218,6 +219,9 @@ static func _build(hero: String, elem: int, form: int, slot: int,
 	a.range_m = float(shape[1])
 	a.arc_degrees = float(shape[2])
 	a.max_targets = int(shape[3])
+	# Carried so the effects can read them; nothing mechanical uses these.
+	a.element = elem
+	a.form = form
 	return a
 
 
