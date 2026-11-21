@@ -80,6 +80,7 @@ func build() -> void:
 	tabs.add_child(_sell_tab_button)
 
 	_buy_scroll = ScrollContainer.new()
+	TouchScroll.attach(_buy_scroll)
 	_buy_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_buy_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(_buy_scroll)

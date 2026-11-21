@@ -123,6 +123,7 @@ func set_title(text: String) -> void:
 ## a long list. Lists use VirtualList instead.
 func scroll_column() -> VBoxContainer:
 	var sc := ScrollContainer.new()
+	TouchScroll.attach(sc)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -151,6 +152,7 @@ func split_column(left: Control) -> VBoxContainer:
 	row.add_child(left)
 
 	var sc := ScrollContainer.new()
+	TouchScroll.attach(sc)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL

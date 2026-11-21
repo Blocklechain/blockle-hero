@@ -100,6 +100,10 @@ var _stick: Joystick = null
 var _free_touches: Dictionary = {}        # index -> Vector2
 var _pinch_prev: float = -1.0
 
+## The boss is down and the map is banked. Carries the run summary; UiShell
+## turns it into the clear screen.
+signal region_cleared(summary: Dictionary)
+
 ## Everything hostile in the region, and the node each one is drawn at.
 ##
 ## THE ENCOUNTER SEAM. Nothing spawns enemies yet; when something does, it calls
@@ -229,6 +233,11 @@ func _on_world_ready(root: Node3D, ter: Terrain, plan: Layout) -> void:
 
 	# AFTER the champion exists: every spawn is placed relative to where the
 	# player stands, so this cannot run before `at` is a real position.
+	_snapshot = {
+		"gold": _account.wallet.balance(Wallet.Kind.GOLD),
+		"items": _account.stash.items.size(),
+		"level": _hero.body.level if _hero.body != null else 1,
+	}
 	_populate(ter, plan, at, pick)
 
 	var rigged: String = "rigged" if _hero.rig.is_rigged else "STATIC (procedural stand-in)"
@@ -277,6 +286,12 @@ const REACH: float = 2.6
 const THINK: float = 0.35
 
 var _brain_t: float = 0.0
+## The enemy id of this map's boss, -1 once it is dead or was never placed.
+var _boss_id: int = -1
+var _kills: int = 0
+## What the account held on arrival, so the clear screen can report what the
+## run actually earned rather than what the player happens to own.
+var _snapshot: Dictionary = {}
 
 
 ## Put the map's encounters in the world.
@@ -313,7 +328,9 @@ func _populate(ter: Terrain, plan: Layout, player_at: Vector2,
 		foe.setup_combat(Encounter.body_for(spawn, tier),
 			spawn.cls, spawn.hero)
 		foe.cast_landed.connect(_on_enemy_cast.bind(foe))
-		add_enemy(foe.body, foe)
+		var id: int = add_enemy(foe.body, foe)
+		if spawn.is_boss:
+			_boss_id = id
 		made += 1
 
 	print("region %d tier %d: %d enemies" % [region_index, tier, made])
@@ -430,9 +447,9 @@ func _show_cast(ability: Ability, caster: HeroController,
 ## because a health bar needs to know where the thing is. A DROP needs the same
 ## thing a health bar does — a position — so it is wired from the same place,
 ## which is here, the one door every enemy in the region comes through.
-func add_enemy(body: Combatant, node: Node3D) -> void:
+func add_enemy(body: Combatant, node: Node3D) -> int:
 	if body == null or node == null:
-		return
+		return -1
 	var id: int = _next_enemy_id
 	_next_enemy_id += 1
 	_enemies.append(body)
@@ -443,6 +460,7 @@ func add_enemy(body: Combatant, node: Node3D) -> void:
 	# to unpick by hand. `self` is a Node and outlives every enemy in it.
 	body.died.connect(_on_enemy_died.bind(id))
 	_hud.track_enemy(body, node)
+	return id
 
 
 ## Roll and drop what an enemy was carrying, where it fell.
@@ -455,10 +473,48 @@ func _on_enemy_died(id: int) -> void:
 	var i: int = _enemy_index(id)
 	if i < 0:
 		return
+	_kills += 1
 	var node: Node3D = _enemy_nodes[i]
-	if node == null or not is_instance_valid(node):
-		return
-	_loot.on_kill(_enemies[i], node.global_position)
+	if node != null and is_instance_valid(node):
+		_loot.on_kill(_enemies[i], node.global_position)
+	if id == _boss_id:
+		_boss_id = -1
+		_clear_region()
+
+
+## THE BOSS IS DOWN. Bank the clear and tell whoever launched this scene.
+##
+## Roster.record_map_cleared() — which counts the map, fires
+## difficulty_completed and pays the one-time spawn crystal for finishing a
+## whole difficulty — was written, unit-tested in rewardtest.gd, and called by
+## NOTHING but that test. A player could clear all hundred maps of Normal and
+## the save would still say they had cleared none, because the only thing that
+## could have said otherwise was never asked.
+func _clear_region() -> void:
+	var crystals: int = _account.record_map_cleared(tier, region_index)
+	_account.save()
+
+	var summary: Dictionary = {
+		"region": region_index,
+		"tier": tier,
+		"hero": _hero.rig.hero_name if _hero != null and _hero.rig != null
+			else hero,
+		"kills": _kills,
+		"gold": _account.wallet.balance(Wallet.Kind.GOLD)
+			- int(_snapshot.get("gold", 0)),
+		"items": _account.stash.items.size()
+			- int(_snapshot.get("items", 0)),
+		"levels": (_hero.body.level if _hero != null and _hero.body != null
+			else 1) - int(_snapshot.get("level", 1)),
+		"crystals": crystals,
+		"cleared": _account.cleared_map_count(tier),
+		"total": Campaign.map_count(),
+		# There is always a next map unless this was the hundredth.
+		"next": region_index + 1 if region_index + 1 < Campaign.map_count()
+			else -1,
+	}
+	_hud.set_message("%s has fallen." % Campaign.region_title(region_index))
+	region_cleared.emit(summary)
 
 
 func _enemy_index(id: int) -> int:

@@ -43,6 +43,9 @@ func _init() -> void:
 
 	resized.connect(_relayout)
 	get_v_scroll_bar().value_changed.connect(func(_v: float) -> void: _sync(false))
+	# Every row is a Button and a Button eats the drag, so the container's own
+	# touch handling never runs. See TouchScroll.
+	TouchScroll.attach(self)
 
 
 ## `factory` builds one blank row; `binder` fills a row in for an entry.
@@ -61,9 +64,21 @@ func count() -> int:
 ## how a screen refreshes after the player changed something.
 func set_count(n: int) -> void:
 	_count = maxi(n, 0)
+	_extent()
+	_sync(true)
+
+
+## How far this list can scroll: where the last row ends.
+##
+## MUST BE RECOMPUTED WHENEVER row_height CHANGES, not only on set_count().
+## row_height grows during _sync when a row turns out to need a third line,
+## and when it did, the extent was left measured at the old step — the
+## campaign list laid 100 maps out on a 215px step inside a range computed at
+## 182, putting 3,300px of maps below the bottom of a scrollbar that had
+## already run out.
+func _extent() -> void:
 	_content.custom_minimum_size = Vector2(0,
 		maxf(float(_count) * float(_step()) - SPACING, 0.0))
-	_sync(true)
 
 
 ## Rebind what is on screen without changing the entry count.
@@ -119,6 +134,7 @@ func _sync(force: bool) -> void:
 		if need > row_height:
 			row_height = need
 			grew = true
+			_extent()
 
 	if grew:
 		# One re-run at the new step. Guarded by the height only ever rising,

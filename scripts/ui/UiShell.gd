@@ -267,6 +267,10 @@ func _launch(arg: Variant) -> void:
 	# index drives the cast, the pack count and the boss, every region in the
 	# game would be populated as though it were the first one.
 	_play.set("region_index", region)
+	# The clear screen is raised from here, not from inside Play: "what happens
+	# after this map" is a question about the campaign and the save, which is
+	# this layer's business, and Play has no idea the menus exist.
+	_play.connect("region_cleared", _on_region_cleared)
 	_play.set("campaign_seed", roster.crystal_seed)
 	# The tier is in the launch payload and always has been — the campaign
 	# screen puts it there. It was simply never read, so every difficulty the
@@ -344,6 +348,39 @@ func _resume_run() -> void:
 			_leave.pressed.disconnect(_resume_run)
 		if not _leave.pressed.is_connected(_return_to_menu):
 			_leave.pressed.connect(_return_to_menu)
+
+
+## The boss went down. Put up the clear screen over the frozen region.
+##
+## The region is FROZEN, not torn down. Behind the panel is the field the
+## player just won, with the corpse still on it — tearing it down to show a
+## summary over a black rectangle throws away the only thing on screen that
+## says where the numbers came from.
+func _on_region_cleared(summary: Dictionary) -> void:
+	if _play == null:
+		return
+	_play.process_mode = Node.PROCESS_MODE_DISABLED
+	if _leave != null:
+		_leave.visible = false
+
+	var screen := ClearScreen.new()
+	screen.name = "ClearScreen"
+	_overlay.add_child(screen)
+	screen.show_summary(summary)
+	screen.back_to_camp.connect(func() -> void:
+		screen.queue_free()
+		_return_to_menu())
+	screen.next_stage.connect(func() -> void:
+		var next: int = int(summary.get("next", -1))
+		var who: String = String(summary.get("hero", selected_hero))
+		var tier: int = int(summary.get("tier", Campaign.Tier.NORMAL))
+		screen.queue_free()
+		_return_to_menu()
+		if next >= 0:
+			# Straight back in, same champion, same difficulty. Walking the
+			# player out to the campaign screen to press the next map is the
+			# friction this screen exists to remove.
+			_launch({"hero": who, "region": next, "tier": tier}))
 
 
 func _return_to_menu() -> void:

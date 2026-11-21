@@ -46,6 +46,7 @@ func build() -> void:
 	# useful while you compare two swords, worthless as the thing you see
 	# instead of the swords.
 	var scroll := ScrollContainer.new()
+	TouchScroll.attach(scroll)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_summary = VBoxContainer.new()
 	_summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -80,6 +81,7 @@ func build() -> void:
 	# Worn is seven rows at most, so it is a plain column; the pool is up to
 	# Stash.CAPACITY and has to recycle.
 	_worn_scroll = ScrollContainer.new()
+	TouchScroll.attach(_worn_scroll)
 	_worn_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_worn_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(_worn_scroll)
