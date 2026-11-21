@@ -537,13 +537,36 @@ func _on_cast_landed(ability: Ability) -> void:
 ## The nearest living enemy's ground position, or Vector2.INF. Used to turn the
 ## champion toward what it is about to hit: on a phone the player has no way to
 ## aim, so pressing an ability has to mean "hit that one".
-func _aim_point() -> Vector2:
+func _aim_point(ability: Ability = null) -> Vector2:
 	if _hero == null or _hero.body == null:
 		return Vector2.INF
 	var env: Dictionary = _enemy_context()
 	var bodies: Array[Combatant] = env["bodies"]
 	var points: PackedVector2Array = env["points"]
 	var here: Vector2 = _hero.ground_position()
+
+	# AIMED AT SOMETHING IT CAN ACTUALLY HIT. Picking the globally nearest
+	# enemy and turning to face it is not auto-target if that enemy is twelve
+	# metres away and the ability reaches three — Combat.cast then finds
+	# nothing inside the cone and the press is spent on empty ground, which
+	# reads as the button being broken.
+	if ability != null and ability.range_m > 0.0:
+		var best: Vector2 = Vector2.INF
+		var best_d: float = INF
+		for i in range(bodies.size()):
+			if bodies[i] == null or not bodies[i].alive:
+				continue
+			if bodies[i].team == _hero.body.team:
+				continue
+			var d: float = here.distance_to(points[i])
+			if d <= ability.range_m and d < best_d:
+				best_d = d
+				best = points[i]
+		if best != Vector2.INF:
+			return best
+		# Nothing in reach: fall through and still turn toward the nearest, so
+		# the champion faces the fight rather than casting over its shoulder.
+
 	var target: Combatant = Combat.nearest_enemy(here, _hero.body.team,
 		bodies, points)
 	if target == null:
@@ -703,7 +726,7 @@ func _on_hud_action(slot: int) -> void:
 func _use(slot: int) -> void:
 	if _hero == null:
 		return
-	_hero.use_ability(slot, _aim_point())
+	_hero.use_ability(slot, _aim_point(_hero.ability_in_slot(slot)))
 
 
 func _process(d: float) -> void:
@@ -713,7 +736,37 @@ func _process(d: float) -> void:
 	if _holding and _hero != null and not _hero.is_busy():
 		if not _hero.is_moving():
 			_order_move(_hold_at)
+	_auto_attack()
 	_think(d)
+
+
+## Swing at whatever is standing next to you, without being told.
+##
+## A phone ARPG cannot ask the player to tap an attack button once per swing
+## while also steering with the other thumb. The basic attack has no cooldown
+## and no cost, so there is never a reason NOT to be using it on something in
+## reach — holding it back is busywork, not a decision. The three abilities
+## stay manual, because those are the decisions.
+##
+## Deliberately does nothing while the champion is MOVING: walking past an
+## enemy should not stop you dead to trade a hit, and a player dragging the
+## stick is telling you where they want to be.
+func _auto_attack() -> void:
+	if _hero == null or _hero.body == null or _hero.is_dead():
+		return
+	if _hero.is_busy() or _hero.is_moving() or _hero.is_stunned():
+		return
+	if _stick != null and _stick.is_active():
+		return
+	var basic: Ability = _hero.ability_in_slot(0)
+	if basic == null:
+		return
+	var at: Vector2 = _aim_point(basic)
+	if at == Vector2.INF:
+		return
+	if _hero.ground_position().distance_to(at) > basic.range_m:
+		return
+	_hero.use_ability(0, at)
 
 
 func _order_move(screen: Vector2) -> void:

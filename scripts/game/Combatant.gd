@@ -31,6 +31,19 @@ var max_health: float = 1.0
 var weapon_power: float = 0.0
 var armour: float = 0.0
 
+## A flat scale on everything this combatant deals out, 1.0 for the player and
+## for any enemy at full strength.
+##
+## It exists because attack power is `stats + weapon`, and the STATS are most
+## of it — an enemy champion at level 1 brings about 21 points of stat damage
+## and 4 of weapon. Scaling the weapon alone, which is what the early-campaign
+## ramp used to do, moved a 25-damage hit to 21. A difficulty ramp has to reach
+## the whole number or it is not a ramp.
+##
+## Separate from outgoing_multiplier(), which is the WEAKEN status: that one is
+## transient and part of the fight, this one is how the encounter was built.
+var damage_scale: float = 1.0
+
 var effects: Array[StatusEffect] = []
 var alive: bool = true
 
@@ -187,7 +200,8 @@ func mitigation() -> float:
 
 ## Base hit before ability multipliers.
 func attack_power() -> float:
-	return (stats.damage_for(school) + weapon_power) * outgoing_multiplier()
+	return (stats.damage_for(school) + weapon_power) \
+		* outgoing_multiplier() * damage_scale
 
 
 ## Resolve an attack from `self` against `target`.

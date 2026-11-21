@@ -243,6 +243,60 @@ const HARD_TIER: int = Tier.MERCILESS
 ## are a champion and its signature move; Oblivion is the full kit including
 ## the stun, the dash and the self-buff, and is meant to be read as a different
 ## fight rather than the same fight with bigger numbers.
+## THE OPENING IS A TUTORIAL, AND IT HAS TO BEHAVE LIKE ONE.
+##
+## Enemies in this game are other champions, built from the same stat block the
+## player's champion is — so a level-1 enemy on map 1 was hitting for 25 of a
+## fresh champion's 164 health, with seventeen of them on the map. Seven hits
+## and the run was over, before the player had bought a single item or learned
+## which button was which.
+##
+## This scales an early enemy's damage down and ramps it back to full over the
+## first stretch of the campaign. MERCY_FLOOR is tuned so the first map lands
+## 1-2 damage per hit; combattest asserts the resulting number rather than the
+## constant, so the tuning cannot drift out from under the intent when the stat
+## formulas change.
+##
+## It FADES WITH DIFFICULTY. A player on Oblivion has cleared the campaign
+## seven times and does not need a tutorial, so the ramp shortens tier by tier
+## and is gone entirely at the top.
+const MERCY_FLOOR: float = 0.055
+## How many maps the ramp covers at Normal.
+const MERCY_MAPS: float = 22.0
+## Shape of the ramp. Above 1 keeps the opening gentle and does the climbing
+## later; at or below 1 the ramp is over before the player has any gear.
+const MERCY_EASE: float = 1.6
+## Health is nerfed far less than damage: trash that dies instantly is as dull
+## as trash that one-shots you, and the complaint was about dying.
+const MERCY_HEALTH_FLOOR: float = 0.38
+
+
+## How much of their full strength enemies on `index` bring, 0..1.
+static func mercy(index: int, tier: int) -> float:
+	var f: float = float(clampi(tier, 0, max_tier())) / float(max_tier())
+	# BOTH ends move with the tier. Shortening the ramp alone left map 1 at the
+	# same floor on every difficulty — Eternal opened exactly as softly as
+	# Normal and only caught up sooner, which is not what a harder difficulty
+	# means.
+	var start: float = lerpf(MERCY_FLOOR, 1.0, f)
+	var span: float = MERCY_MAPS * (1.0 - f)
+	if span <= 0.0 or float(index) >= span:
+		return 1.0
+	# Eased rather than linear: the first few maps stay gentle and the curve
+	# does most of its climbing once the player has gear and a level or two.
+	#
+	# THE EXPONENT MUST BE ABOVE 1. At 0.75 it did the exact opposite of the
+	# line above — fast early, flat late — and map 6 was already landing 11 of
+	# a fresh champion's 164 health.
+	var k: float = pow(float(index) / span, MERCY_EASE)
+	return lerpf(start, 1.0, k)
+
+
+## The same ramp applied to health, which is deliberately much shallower.
+static func mercy_health(index: int, tier: int) -> float:
+	return lerpf(MERCY_HEALTH_FLOOR, 1.0, mercy(index, tier))
+
+
 static func enemy_actions(tier: int) -> int:
 	if tier >= max_tier():
 		return 4        # Oblivion only: everything they have

@@ -69,6 +69,12 @@ class Spawn extends RefCounted:
 	## leaves both at their defaults.
 	var progress: float = 0.0
 	var pack: int = -1
+	## How much of their full strength this enemy brings, 0..1 — see
+	## Campaign.mercy(). Carried on the spawn rather than recomputed in
+	## body_for() because body_for has the tier but not the map index, and
+	## passing the index to it as well would give two sources for one number.
+	var mercy: float = 1.0
+	var mercy_health: float = 1.0
 
 	func display_name() -> String:
 		return ChampionName.of(hero) if is_boss == false else "%s, %s" % [
@@ -370,12 +376,24 @@ static func build(region_index: int, tier: int, campaign_seed: int,
 		pathing: Pathing, player_at: Vector2, plan: Layout = null) -> Array:
 	if playable.is_empty():
 		return []
+	var out: Array = []
 	if plan is Lane:
-		return _spine(plan as Lane, region_index, tier, campaign_seed,
+		out = _spine(plan as Lane, region_index, tier, campaign_seed,
 			cast_for(region_index, campaign_seed, playable, avoid),
 			pathing, player_at)
-	return _ring(region_index, tier, campaign_seed,
-		_pool(playable, avoid), pathing, player_at)
+	else:
+		out = _ring(region_index, tier, campaign_seed,
+			_pool(playable, avoid), pathing, player_at)
+
+	# Stamped here, after placement, so every path through this function gets
+	# it — a ramp applied in only one of the two placers is the early campaign
+	# being merciful on lanes and lethal in arenas.
+	var m: float = Campaign.mercy(region_index, tier)
+	var mh: float = Campaign.mercy_health(region_index, tier)
+	for s in out:
+		s.mercy = m
+		s.mercy_health = mh
+	return out
 
 
 # ------------------------------------------------------------------------------
@@ -781,11 +799,14 @@ static func body_for(s: Spawn, tier: int) -> Combatant:
 	grown = grown.scaled(Champion.stat_multiplier(s.hero))
 
 	var hp_mult: float = Campaign.enemy_health_mult(tier) \
-		* (BOSS_HEALTH_MULT if s.is_boss else 1.0)
+		* (BOSS_HEALTH_MULT if s.is_boss else 1.0) * s.mercy_health
 	var dmg_mult: float = Campaign.enemy_damage_mult(tier) \
-		* (BOSS_DAMAGE_MULT if s.is_boss else 1.0)
+		* (BOSS_DAMAGE_MULT if s.is_boss else 1.0) * s.mercy
 
-	var weapon: float = 4.0 * float(s.level) * dmg_mult
+	# dmg_mult carries the TIER and boss multipliers only; the early-campaign
+	# ramp rides damage_scale above, so it is not applied twice here.
+	var weapon: float = 4.0 * float(s.level) \
+		* (dmg_mult / maxf(s.mercy, 0.0001))
 	var armour: float = 3.0 * float(s.level) \
 		* (BOSS_ARMOUR_MULT if s.is_boss else 1.0)
 
@@ -796,6 +817,9 @@ static func body_for(s: Spawn, tier: int) -> Combatant:
 	# tier scales the one number it is meant to scale. Stats.max_health() is
 	# linear in constitution, so the result is identical for health and leaves
 	# damage, crit, dodge and haste alone.
+	# The ramp reaches the whole output, not just the weapon component — see
+	# Combatant.damage_scale.
+	c.damage_scale = s.mercy
 	c.max_health *= hp_mult
 	c.health = c.max_health
 	return c
