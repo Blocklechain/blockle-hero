@@ -345,6 +345,14 @@ const REACH: float = 2.6
 ## and 139 rigs asking the pathfinder sixty times a second does not ship.
 const THINK: float = 0.35
 
+## How much closer than its preferred range an enemy tolerates before backing
+## away. 0.6 means a mage happy at 8m starts retreating inside 4.8m.
+const KITE_INNER: float = 0.6
+## Share of its longest reaching ability a ranged enemy wants to stand at.
+## Not the full range: standing at the exact edge means every step the player
+## takes puts it out of range and it spends the fight shuffling.
+const STAND_FRACTION: float = 0.72
+
 ## THE BOSS MECHANIC. A boss that is only bigger and tougher is an endurance
 ## test; one you have to read is a fight. It winds up a ground slam, the
 ## ground tells you exactly where, and you have SLAM_WARN seconds to not be
@@ -368,6 +376,8 @@ const SLAM_MAX_FRACTION: float = 0.55
 ## attached.
 
 var _brain_t: float = 0.0
+## Pack indices that have noticed the player. See _think.
+var _awake: Dictionary = {}
 ## The enemy id of this map's boss, -1 once it is dead or was never placed.
 var _boss_id: int = -1
 var _kills: int = 0
@@ -429,6 +439,19 @@ func _populate(ter: Terrain, plan: Layout, player_at: Vector2,
 		var id: int = add_enemy(foe.body, foe)
 		if spawn.is_boss:
 			_boss_id = id
+
+		# WHAT THIS ONE IS. Stamped on the node rather than kept in a parallel
+		# array: the arrays are compacted as corpses are pruned and an index
+		# captured here would name a different enemy ten seconds later — the
+		# same trap the enemy ids exist to avoid.
+		foe.set_meta("pack", spawn.pack)
+		foe.set_meta("stand_off", _stand_off(foe, spawn))
+		var trait_id: int = Elite.Trait.NONE
+		if spawn.is_elite:
+			trait_id = Elite.roll(world_seed, made)
+			Elite.apply(foe.body, trait_id)
+			Elite.mark(foe, trait_id)
+		foe.set_meta("trait", trait_id)
 		made += 1
 
 	print("region %d tier %d: %d enemies" % [region_index, tier, made])
@@ -452,6 +475,22 @@ func _think(delta: float) -> void:
 	pass
 
 	var here: Vector2 = _hero.ground_position()
+
+	# PACKS WAKE TOGETHER. Each enemy used to notice the player on its own, so
+	# a pack of five was fought as five separate duels at the edge of aggro
+	# range — safe, slow, and nothing like the fight the encounter builder
+	# laid out. One of them seeing you now wakes the group, which is what
+	# makes a pack a pack.
+	for n in _enemy_nodes:
+		var w := n as HeroController
+		if w == null or w.is_dead():
+			continue
+		var pack: int = int(w.get_meta("pack", -1))
+		if pack < 0 or _awake.has(pack):
+			continue
+		if w.ground_position().distance_to(here) <= AGGRO:
+			_awake[pack] = true
+
 	for n in _enemy_nodes:
 		var foe := n as HeroController
 		if foe == null or foe.is_dead() or foe.body == null:
@@ -460,19 +499,69 @@ func _think(delta: float) -> void:
 			continue
 		var at: Vector2 = foe.ground_position()
 		var gap: float = at.distance_to(here)
-		var notice: float = AGGRO_BOSS if foe.scale.y >= Encounter.BOSS_SIZE \
-			else AGGRO
-		if gap > notice:
-			continue
 		var is_boss: bool = foe.scale.y >= Encounter.BOSS_SIZE - 0.001
+		var notice: float = AGGRO_BOSS if is_boss else AGGRO
+		# Awake because a packmate saw you, or because this one did.
+		if gap > notice and not _awake.has(int(foe.get_meta("pack", -1))):
+			continue
+		# Even an awake pack has a limit: enemies on the far side of the map
+		# should not sprint the length of the lane at you.
+		if gap > notice * 2.5:
+			continue
+
 		if is_boss and _slam_cd <= 0.0 and gap <= SLAM_RANGE:
 			_begin_slam(foe, here)
 			continue
-		if gap <= REACH:
-			foe.stop()
-			foe.use_ability(_choose_action(foe, gap), here)
-		elif not foe.is_moving():
-			foe.move_to(here, true)
+
+		# IT FIGHTS LIKE WHAT IT IS. Every enemy used to walk into melee range
+		# and swing, which made a Ranger and a Mage and a Fighter the same
+		# encounter wearing different models — across a roster of 139, that is
+		# the single biggest thing the game was throwing away.
+		var stand: float = float(foe.get_meta("stand_off", REACH))
+		if gap > stand:
+			if not foe.is_moving():
+				foe.move_to(here, true)
+			continue
+		if gap < stand * KITE_INNER and stand > REACH * 2.0:
+			# Too close for what it does. Back off rather than trade punches
+			# it is not built to win.
+			_retreat(foe, here, stand)
+			continue
+		foe.stop()
+		foe.use_ability(_choose_action(foe, gap), here)
+
+
+## How far from the champion this enemy wants to be.
+##
+## Melee wants to be on top of you. A ranger or a mage wants to be at most of
+## the way out along whatever it can actually throw — computed from the kit it
+## was given rather than per class, so a mage who rolled a short cone fights
+## closer than one who rolled a long bolt, which is the whole reason the
+## spellbook is rolled per champion.
+func _stand_off(foe: HeroController, spawn: Encounter.Spawn) -> float:
+	if HeroClass.school_of(spawn.cls) == HeroClass.School.MELEE:
+		return REACH
+	var longest: float = REACH
+	for slot in range(1, 4):
+		var ab: Ability = foe.ability_in_slot(slot)
+		if ab != null and ab.shape != Ability.Shape.SELF:
+			longest = maxf(longest, ab.range_m)
+	return maxf(REACH, longest * STAND_FRACTION)
+
+
+## Step away from the champion, staying on ground that exists.
+func _retreat(foe: HeroController, from: Vector2, want: float) -> void:
+	if foe.is_moving():
+		return
+	var away: Vector2 = (foe.ground_position() - from)
+	if away.length_squared() < 0.01:
+		away = Vector2(1, 0)
+	var goal: Vector2 = from + away.normalized() * want
+	# move_to pathfinds, so a retreat into a cliff simply does not happen —
+	# it returns false and the enemy holds its ground and fights instead.
+	if not foe.move_to(goal, true):
+		foe.use_ability(_choose_action(foe, from.distance_to(
+			foe.ground_position())), from)
 
 
 ## Which of its actions this enemy uses, out of the ones the difficulty lets it.
@@ -556,8 +645,56 @@ func _on_enemy_cast(ability: Ability, foe: HeroController) -> void:
 	var targets: Array[Combatant] = [_hero.body]
 	ctx.targets = targets
 	ctx.positions = PackedVector2Array([_hero.ground_position()])
-	Combat.cast(ability, ctx)
+	var r: Combat.Result = Combat.cast(ability, ctx)
+	Elite.on_hit(int(foe.get_meta("trait", Elite.Trait.NONE)),
+		foe.body, _hero.body)
 	_show_cast(ability, foe, _hero.ground_position())
+	_show_impacts(r, ability, foe)
+
+
+## Flash every body this cast actually connected with.
+##
+## EVERY EFFECT IN THIS GAME PLAYED AT THE CASTER. From the player's side that
+## meant the biggest spell they own was a light show around their own feet
+## while the thing they were trying to kill registered nothing at all — the
+## link between pressing the button and hurting something was never drawn.
+##
+## Driven off the Result rather than the targets the context was handed: the
+## context holds everyone who COULD have been hit, and lighting up an enemy
+## the cone missed teaches the player their aim was fine when it was not.
+func _show_impacts(r: Combat.Result, ability: Ability,
+		caster: HeroController) -> void:
+	if r == null or r.hit.is_empty() or caster == null or caster.rig == null:
+		return
+	var sig: Dictionary = Vfx.signature(caster.rig.hero_name,
+		HeroClass.for_hero(caster.rig.hero_name))
+	if ability.element >= 0:
+		sig = Vfx._elemental(sig, ability.element)
+	var tint: Color = sig["secondary"]
+	# A crit on any target makes that target's flash the bigger one; the rest
+	# get the ordinary hit. Result only counts crits, so the first `crits`
+	# bodies wear them — good enough for a quarter-second flash and far
+	# cheaper than threading per-target detail through the combat layer.
+	var crits_left: int = r.crits
+	for body in r.hit:
+		var at: Vector3 = _body_position(body)
+		if at == Vector3.INF:
+			continue
+		Vfx.impact(self, at, tint, crits_left > 0)
+		crits_left -= 1
+
+
+## Where a combatant is standing, or INF if its body has already gone.
+func _body_position(body: Combatant) -> Vector3:
+	if _hero != null and body == _hero.body:
+		return _hero.global_position
+	for i in range(_enemies.size()):
+		if _enemies[i] == body:
+			var n: Node3D = _enemy_nodes[i]
+			if n != null and is_instance_valid(n):
+				return n.global_position
+			return Vector3.INF
+	return Vector3.INF
 
 
 ## Draw the ability.
@@ -774,8 +911,9 @@ func _on_cast_landed(ability: Ability) -> void:
 	ctx.facing = _hero.rotation.y
 	ctx.targets = env["bodies"]
 	ctx.positions = env["points"]
-	Combat.cast(ability, ctx)
+	var r: Combat.Result = Combat.cast(ability, ctx)
 	_show_cast(ability, _hero, _aim_point())
+	_show_impacts(r, ability, _hero)
 
 
 ## The nearest living enemy's ground position, or Vector2.INF. Used to turn the

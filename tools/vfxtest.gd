@@ -154,6 +154,62 @@ func _effects() -> void:
 	check("the whole kit was covered, not one ability", built >= 12,
 		"%d actions across three classes" % built)
 
+	# DIVERSITY, NOT JUST PRESENCE. Every mage spell is one of seven forms,
+	# and four of them used to borrow another form's effect — a Venom chain
+	# and a Frost nova drew the same ring, a lance drew a cleave's swung
+	# wedge, a storm drew a pillar rising OUT of the ground. "Every ability
+	# produces an effect" passed throughout. Fingerprint the node each form
+	# actually builds and demand they differ.
+	var shapes: Dictionary = {}
+	var mage: String = ""
+	for h in roster:
+		if HeroClass.for_hero(h) == HeroClass.Kind.MAGE:
+			mage = h
+			break
+	for form in [MageSpells.Form.BOLT, MageSpells.Form.ORB,
+			MageSpells.Form.LANCE, MageSpells.Form.CONE,
+			MageSpells.Form.NOVA, MageSpells.Form.STORM,
+			MageSpells.Form.CHAIN]:
+		var ab := Ability.new()
+		ab.id = "probe"
+		ab.form = form
+		ab.element = MageSpells.Element.FROST
+		var shape: Array = MageSpells.FORM_SHAPE[form]
+		ab.shape = int(shape[0])
+		ab.range_m = float(shape[1])
+		ab.arc_degrees = float(shape[2])
+		var fx: Vfx = Vfx.play(holder, ab, mage, HeroClass.Kind.MAGE,
+			Vector2.ZERO, 0.0, Vector2(7.0, 0.0))
+		if fx == null:
+			continue
+		shapes[String(MageSpells.FORM_WORD[form])] = _fingerprint(fx)
+		fx.queue_free()
+		await process_frame
+
+	var seen: Dictionary = {}
+	var shared: PackedStringArray = PackedStringArray()
+	for word in shapes.keys():
+		var f: String = String(shapes[word])
+		if seen.has(f):
+			shared.append("%s==%s" % [word, seen[f]])
+		seen[f] = word
+	check("the seven spell forms do not borrow each other's effects",
+		shared.is_empty(), ", ".join(shared) if not shared.is_empty()
+			else "%d distinct shapes" % seen.size())
+
+	# A hit has to register ON THE THING HIT.
+	var boom: Vfx = Vfx.impact(holder, Vector3.ZERO, Color.RED, false)
+	check("a connecting hit flashes on its victim", boom != null)
+	if boom != null:
+		var crit: Vfx = Vfx.impact(holder, Vector3.ZERO, Color.RED, true)
+		check("...and a crit is a different shape, not just brighter",
+			crit != null and _fingerprint(crit) != _fingerprint(boom),
+			"%s vs %s" % [_fingerprint(boom), _fingerprint(crit)])
+		boom.queue_free()
+		if crit != null:
+			crit.queue_free()
+		await process_frame
+
 	# The cap has to actually cap, or a busy fight drops frames.
 	var spam: Array[Vfx] = []
 	for i in range(Vfx.MAX_LIVE + 8):
@@ -168,3 +224,24 @@ func _effects() -> void:
 		fx.queue_free()
 	holder.queue_free()
 	await process_frame
+
+
+## A crude description of what an effect is MADE of: how many meshes, of what
+## kinds, and how many particle emitters. Two effects with the same
+## fingerprint are, to a player, the same effect in a different colour.
+func _fingerprint(fx: Vfx) -> String:
+	var meshes: Dictionary = {}
+	var parts: int = 0
+	for c in fx.get_children():
+		if c is GPUParticles3D:
+			parts += 1
+		elif c is MeshInstance3D:
+			var m: Mesh = (c as MeshInstance3D).mesh
+			var k: String = m.get_class() if m != null else "none"
+			meshes[k] = int(meshes.get(k, 0)) + 1
+	var keys: Array = meshes.keys()
+	keys.sort()
+	var bits: PackedStringArray = PackedStringArray()
+	for k in keys:
+		bits.append("%s:%d" % [k, int(meshes[k])])
+	return "%s|p%d" % ["+".join(bits), parts]

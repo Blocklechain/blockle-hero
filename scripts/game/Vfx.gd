@@ -285,7 +285,9 @@ static func _build(ability: Ability, sig: Dictionary, origin: Vector2,
 			return _fan(sig, origin, facing, ability.range_m,
 				ability.arc_degrees)
 		"pin":
-			return _tracer(sig, origin, target)
+			# A pinning shot is one hard line, not a spray — the beam reads as
+			# a shaft driven through, which is what the stun it applies means.
+			return _beam(sig, origin, facing, ability.range_m)
 		"evade":
 			return _ghost(sig, origin, facing)
 		"firebolt":
@@ -327,25 +329,20 @@ static func _spell(ability: Ability, sig: Dictionary, origin: Vector2,
 		MageSpells.Form.BOLT:
 			return _bolt(e, origin, target)
 		MageSpells.Form.ORB:
-			# Slower and fatter than a bolt, and it lingers where it lands.
-			var orb: Vfx = _bolt(e, origin, target)
-			orb._life = 0.75
-			return orb
+			return _vortex(e, target if target != Vector2.INF else origin,
+				maxf(ability.range_m * 0.4, 2.5))
 		MageSpells.Form.LANCE:
-			# A narrow spear of it: the arc is 25 degrees, so a thin sweep
-			# reads as a line punched through a rank rather than a swing.
-			return _arc_sweep(e, origin, facing, ability.range_m,
-				maxf(ability.arc_degrees, 12.0), 0.34)
+			return _beam(e, origin, facing, ability.range_m)
 		MageSpells.Form.CONE:
 			return _arc_sweep(e, origin, facing, ability.range_m,
 				ability.arc_degrees, 0.5)
 		MageSpells.Form.NOVA:
 			return _nova(e, origin, ability.range_m)
 		MageSpells.Form.STORM:
-			# Weather, not a blast: a column over the ground it covers.
-			return _pillar(e, target if target != Vector2.INF else origin)
+			return _storm(e, target if target != Vector2.INF else origin,
+				maxf(ability.range_m * 0.55, 3.0))
 		MageSpells.Form.CHAIN:
-			return _fan(e, origin, facing, ability.range_m,
+			return _chain(e, origin, facing, ability.range_m,
 				maxf(ability.arc_degrees, 30.0))
 	return _nova(e, origin, maxf(ability.range_m, 3.0))
 
@@ -695,6 +692,279 @@ static func _dome(sig: Dictionary, at: Vector2) -> Vfx:
 		mat.emission_energy_multiplier = lerpf(2.4, 0.4, t)
 
 	fx.add_child(_motes(sig, 0.9, 1.25, 0.9, Vector3(0, 0.8, 0)))
+	return fx
+
+
+## A BEAM: a held line of light from the caster through everything in front.
+##
+## What a lance should have been. It was borrowing the cleave's swept wedge,
+## which reads as a swing — the opposite of a spear driven through a rank.
+static func _beam(sig: Dictionary, at: Vector2, facing: float,
+		reach: float) -> Vfx:
+	var fx := Vfx.new(0.42)
+	fx.position = Vector3(at.x, 1.05, at.y)
+
+	var dir := Vector3(sin(facing), 0.0, cos(facing))
+	var core := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.34, 0.34, reach)
+	core.mesh = box
+	core.transform = Transform3D(Basis.looking_at(dir, Vector3.UP),
+		dir * reach * 0.5)
+	var mat: StandardMaterial3D = _glow(sig["secondary"], 4.0)
+	core.material_override = mat
+	fx.add_child(core)
+
+	# A wider, dimmer sheath around it. One bar of light is a plank; a bright
+	# core inside a soft one is a beam.
+	var sheath := MeshInstance3D.new()
+	var wide := BoxMesh.new()
+	wide.size = Vector3(0.95, 0.95, reach)
+	sheath.mesh = wide
+	sheath.transform = core.transform
+	var smat: StandardMaterial3D = _glow(sig["primary"], 1.6)
+	sheath.material_override = smat
+	fx.add_child(sheath)
+
+	fx._on_tick = func(_n: Vfx, k: float) -> void:
+		# Snaps to full length, holds, then collapses to nothing lengthwise —
+		# a beam that fades uniformly looks like it was switched off.
+		var open: float = clampf(k / 0.12, 0.0, 1.0)
+		var close: float = clampf((k - 0.6) / 0.4, 0.0, 1.0)
+		core.scale = Vector3(1.0 - close, 1.0 - close, open)
+		sheath.scale = Vector3((1.0 - close) * (1.0 + 0.3 * sin(k * 30.0)),
+			1.0 - close, open)
+		mat.albedo_color = Color(sig["secondary"], 1.0 - close)
+		smat.albedo_color = Color(sig["primary"], (1.0 - close) * 0.45)
+
+	fx.add_child(_motes(sig, 0.7, 0.8, 1.2))
+	return fx
+
+
+## A CHAIN: light jumping from point to point, each hop a beat behind.
+##
+## The chain form was drawing the volley's parallel fan, which says "many
+## things at once" when the whole idea is "one thing, travelling, finding the
+## next target".
+static func _chain(sig: Dictionary, at: Vector2, facing: float, reach: float,
+		degrees: float) -> Vfx:
+	var fx := Vfx.new(0.6)
+	fx.position = Vector3(at.x, 1.1, at.y)
+
+	var hops: int = 4
+	var links: Array[MeshInstance3D] = []
+	var mat: StandardMaterial3D = _glow(sig["primary"], 3.6)
+	var spin: float = sig["spin"]
+	var prev := Vector3.ZERO
+	var points: Array[Vector3] = [Vector3.ZERO]
+	for i in range(hops):
+		# Zig-zags across the cone rather than radiating from the caster, so
+		# it reads as arcing between bodies.
+		var a: float = facing + deg_to_rad(degrees) * 0.5 * spin \
+			* (1.0 if i % 2 == 0 else -1.0) * (0.35 + 0.65 * Rng.unit1(
+				int(sig["motes"]) + i, i))
+		var step: float = reach / float(hops)
+		var nxt: Vector3 = prev + Vector3(sin(a), 0.0, cos(a)) * step
+		points.append(nxt)
+		prev = nxt
+
+	for i in range(hops):
+		var from: Vector3 = points[i]
+		var to: Vector3 = points[i + 1]
+		var span: Vector3 = to - from
+		var mi := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(0.11, 0.11, span.length())
+		mi.mesh = box
+		mi.transform = Transform3D(Basis.looking_at(span, Vector3.UP),
+			from + span * 0.5)
+		mi.material_override = mat
+		mi.visible = false
+		fx.add_child(mi)
+		links.append(mi)
+
+	fx._on_tick = func(_n: Vfx, k: float) -> void:
+		for i in range(links.size()):
+			# Each link arrives a beat after the one before it, and they all
+			# stay lit once struck — the shape of the whole arc is the point.
+			links[i].visible = k >= float(i) * 0.09
+		mat.albedo_color = Color(sig["primary"],
+			clampf(1.0 - (k - 0.45) / 0.55, 0.0, 1.0)
+			* (0.75 + 0.25 * absf(sin(k * 46.0))))
+
+	fx.add_child(_motes(sig, 0.8, reach * 0.3, 1.3))
+	return fx
+
+
+## A STORM: it falls on them, from above, over an area.
+##
+## Weather. The storm form was borrowing the rally pillar, which rises — and
+## a column of light coming UP out of the ground is the opposite of what the
+## word means.
+static func _storm(sig: Dictionary, at: Vector2, radius: float) -> Vfx:
+	var fx := Vfx.new(0.95)
+	fx.position = Vector3(at.x, 0.0, at.y)
+
+	var bolts: Array[MeshInstance3D] = []
+	var seeds: PackedFloat32Array = PackedFloat32Array()
+	var mat: StandardMaterial3D = _glow(sig["primary"], 3.4)
+	for i in range(7):
+		var mi := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(0.16, 7.0, 0.16)
+		mi.mesh = box
+		mi.material_override = mat
+		var a: float = TAU * Rng.unit1(int(sig["motes"]) * 13 + i, i)
+		var r: float = radius * sqrt(Rng.unit1(i * 31 + 7, i))
+		mi.position = Vector3(cos(a) * r, 3.5, sin(a) * r)
+		mi.visible = false
+		fx.add_child(mi)
+		bolts.append(mi)
+		# Staggered arrivals, so it rains rather than landing as one slab.
+		seeds.append(Rng.unit1(i * 101 + 3, i) * 0.55)
+
+	var ring := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.94
+	torus.outer_radius = 1.0
+	torus.rings = 22
+	torus.ring_segments = 5
+	ring.mesh = torus
+	ring.scale = Vector3(radius, 1.0, radius)
+	var rmat: StandardMaterial3D = _glow(sig["secondary"], 1.6)
+	ring.material_override = rmat
+	ring.position.y = 0.05
+	fx.add_child(ring)
+
+	fx._on_tick = func(_n: Vfx, k: float) -> void:
+		for i in range(bolts.size()):
+			var since: float = k - seeds[i]
+			if since < 0.0:
+				bolts[i].visible = false
+				continue
+			bolts[i].visible = since < 0.26
+			# Each strike drops in, then snaps thin and gone.
+			var f: float = clampf(since / 0.26, 0.0, 1.0)
+			bolts[i].scale = Vector3(1.0 - f * 0.8, 1.0, 1.0 - f * 0.8)
+			bolts[i].position.y = lerpf(5.0, 3.5, clampf(f * 4.0, 0.0, 1.0))
+		mat.albedo_color = Color(sig["primary"], 1.0)
+		rmat.albedo_color = Color(sig["secondary"], (1.0 - k) * 0.7)
+
+	fx.add_child(_motes(sig, 1.1, radius * 0.6, 0.7, Vector3(0, -7.0, 0)))
+	return fx
+
+
+## A VORTEX: everything is pulled in, then thrown out.
+##
+## For the orb — a slow heavy thing that arrives and collapses space, rather
+## than the bolt's fast travelling spark it used to borrow.
+static func _vortex(sig: Dictionary, at: Vector2, radius: float) -> Vfx:
+	var fx := Vfx.new(0.8)
+	fx.position = Vector3(at.x, 0.9, at.y)
+
+	var rings: Array[MeshInstance3D] = []
+	var mat: StandardMaterial3D = _glow(sig["primary"], 2.8)
+	for i in range(3):
+		var mi := MeshInstance3D.new()
+		var torus := TorusMesh.new()
+		torus.inner_radius = 0.88
+		torus.outer_radius = 1.0
+		torus.rings = 18
+		torus.ring_segments = 5
+		mi.mesh = torus
+		mi.material_override = mat
+		# Tilted off the ground plane and off each other: three flat rings
+		# stacked read as one thick ring.
+		mi.rotation = Vector3(deg_to_rad(18.0 * float(i - 1)), 0.0,
+			deg_to_rad(12.0 * float(i)))
+		fx.add_child(mi)
+		rings.append(mi)
+
+	var core := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.3
+	sph.height = 0.6
+	sph.radial_segments = 10
+	sph.rings = 5
+	core.mesh = sph
+	var cmat: StandardMaterial3D = _glow(sig["secondary"], 4.0)
+	core.material_override = cmat
+	fx.add_child(core)
+
+	var spin: float = sig["spin"]
+	fx._on_tick = func(_n: Vfx, k: float) -> void:
+		# Draws in for two thirds, then detonates.
+		if k < 0.66:
+			var f: float = k / 0.66
+			var r: float = lerpf(radius, radius * 0.18, f * f)
+			for i in range(rings.size()):
+				rings[i].scale = Vector3(r, 1.0, r)
+				rings[i].rotation.y += 0.09 * spin * (1.0 + float(i))
+			core.scale = Vector3.ONE * (0.4 + 1.6 * f)
+			mat.albedo_color = Color(sig["primary"], 0.35 + 0.5 * f)
+			cmat.albedo_color = Color(sig["secondary"], f)
+		else:
+			var b: float = (k - 0.66) / 0.34
+			var r2: float = lerpf(radius * 0.18, radius * 1.5, b)
+			for i in range(rings.size()):
+				rings[i].scale = Vector3(r2, 1.0, r2)
+			core.scale = Vector3.ONE * (2.0 + 5.0 * b)
+			mat.albedo_color = Color(sig["primary"], 1.0 - b)
+			cmat.albedo_color = Color(1, 1, 1, 1.0 - b)
+
+	fx.add_child(_motes(sig, 1.3, radius * 0.5, 1.5))
+	return fx
+
+
+## WHAT IT LOOKS LIKE TO BE HIT, drawn ON THE VICTIM.
+##
+## Every effect in this file played at the CASTER. From the player's side that
+## means the biggest spell in the game is a light show around their own feet
+## and the thing they are trying to kill registers nothing — the connection
+## between pressing a button and hurting something was never drawn. This is
+## small and brief on purpose: it fires once per target per cast and there can
+## be eight of them.
+static func impact(parent: Node, at: Vector3, colour: Color,
+		crit: bool = false) -> Vfx:
+	if parent == null or not parent.is_inside_tree():
+		return null
+	if _live >= MAX_LIVE:
+		return null
+	var fx := Vfx.new(0.26 if not crit else 0.36)
+	fx.position = at + Vector3(0, 1.0, 0)
+
+	var burst := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.3
+	sph.height = 0.6
+	sph.radial_segments = 8
+	sph.rings = 4
+	burst.mesh = sph
+	var mat: StandardMaterial3D = _glow(colour, 4.5 if crit else 3.0)
+	burst.material_override = mat
+	fx.add_child(burst)
+
+	# A crit gets a second, wider shell so it reads as different in kind
+	# rather than just brighter.
+	var shell: MeshInstance3D = null
+	var shmat: StandardMaterial3D = null
+	if crit:
+		shell = MeshInstance3D.new()
+		shell.mesh = sph
+		shmat = _glow(Color(1, 1, 1), 3.0)
+		shell.material_override = shmat
+		fx.add_child(shell)
+
+	fx._on_tick = func(_n: Vfx, k: float) -> void:
+		var e: float = 1.0 - pow(1.0 - k, 3.0)
+		burst.scale = Vector3.ONE * (0.4 + (2.6 if crit else 1.7) * e)
+		mat.albedo_color = Color(colour, 1.0 - e)
+		if shell != null:
+			shell.scale = Vector3.ONE * (0.4 + 4.2 * e)
+			shmat.albedo_color = Color(1, 1, 1, (1.0 - e) * 0.5)
+
+	_live += 1
+	parent.add_child(fx)
 	return fx
 
 

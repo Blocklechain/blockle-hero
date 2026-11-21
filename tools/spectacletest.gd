@@ -83,6 +83,16 @@ func _go() -> void:
 		_done()
 		return
 
+	# CLEAR THE FIELD FIRST. Enemies now fight like their class, which means
+	# the eight ranged ones on this map stand off and shoot — and between the
+	# first slam and the second they killed the level-1 champion outright, so
+	# the dodge case never ran. That is the game working; it is not what this
+	# section is measuring. Push everyone but the boss out of the fight.
+	for n in play.get_children():
+		if n is HeroController and n != me and n != boss:
+			(n as HeroController)._place(
+				me.ground_position() + Vector2(90.0, 90.0))
+
 	# Stand in front of it and let the brain decide.
 	boss._place(me.ground_position() + Vector2(6.0, 0.0))
 	play.set("_slam_cd", 0.0)
@@ -142,6 +152,12 @@ func _go() -> void:
 			is_equal_approx(me.body.health, safe_before),
 			"%.0f -> %.0f" % [safe_before, me.body.health])
 	else:
+		print("    boss: alive=%s busy=%s stunned=%s gap=%.1f cd=%.2f "
+			% [boss.body.alive, boss.is_busy(), boss.is_stunned(),
+				boss.ground_position().distance_to(me.ground_position()),
+				float(play.get("_slam_cd"))]
+			+ "hero_alive=%s stand=%.1f" % [me.body.alive,
+				float(boss.get_meta("stand_off", -1.0))])
 		check("the boss slammed a second time to test the dodge", false)
 
 	print("\n=== only good loot lights up ===")
