@@ -152,8 +152,29 @@ jobs:
           # only be loaded from the authoring volume rather than from res:// —
           # exactly the bug that shipped a roster of invisible heroes.
           "$GODOT" --headless --path . --script tools/bundlecheck.gd
-          "$GODOT" --headless --path . --script tools/metatest.gd
-          "$GODOT" --headless --path . --script tools/combattest.gd
+
+          # EVERY TEST, not three of them. CI ran bundlecheck, metatest and
+          # combattest and nothing else, so twenty-odd suites — the ones that
+          # boot the real scene and check that enemies spawn, that the save
+          # records a clear, that a finger can scroll a list, that the camera
+          # cut-out is not sitting on the UI — could go red for weeks without
+          # anyone noticing. Several of this project's shipped bugs were
+          # covered by a test that was never run.
+          #
+          # kindtest is deliberately NOT here: it has five failing assertions
+          # about lane palette and prop coverage that predate this list and
+          # need investigating on their own. Listing it would block every
+          # build; pretending it passes would be worse. It is named here so
+          # the omission is visible rather than silent.
+          for t in metatest combattest feedbacktest loottest storetest \
+                   uitest campaigntest lanetest rewardtest encountertest \
+                   dreadtest sticktest loadouttest movetest overflowtest \
+                   spawntest vfxtest opentest scrolltest cleartest \
+                   wiredtest gatetest respectest spectacletest titletest \
+                   tactictest safetest; do
+            echo "--- $t"
+            "$GODOT" --headless --path . --script "tools/$t.gd"
+          done
 
       - name: Export the Xcode project
         run: |

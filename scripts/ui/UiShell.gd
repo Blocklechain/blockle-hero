@@ -77,22 +77,64 @@ func _ensure_selection() -> void:
 # iOS has a notch and a home indicator, and the whole UI is one stretched
 # viewport, so the safe area has to be converted from window pixels into
 # viewport pixels before it means anything.
+
+## Smallest inset on any edge — breathing room even where the device needs
+## none, so content never sits flush against the glass.
+const MIN_INSET: int = HeroTheme.PAD
+## Largest inset we will believe. A bad safe-area report should cost a border,
+## not the screen.
+const MAX_INSET: int = 260
+
+
+## The four insets, in VIEWPORT pixels, for a given device geometry.
+##
+## Pure and static so it can be tested without a notched phone to hand: every
+## bug this function has had was in arithmetic that only ran on hardware none
+## of the tooling has.
+##
+## THE SIDES ARE THE POINT. In landscape — which is the only way this game is
+## played — the Dynamic Island and the home indicator are on the LEFT and
+## RIGHT edges, not the top. The old version computed top and bottom from the
+## reported safe area and hardcoded left and right to a 34 px pad, so the
+## camera cut-out sat squarely on top of whatever the leftmost column was
+## drawing. HeroTheme.SAFE_X was added for exactly this and never wired to
+## anything.
+static func safe_margins(win: Vector2i, area: Rect2i,
+		view: Vector2) -> Dictionary:
+	var out: Dictionary = {
+		"left": MIN_INSET, "right": MIN_INSET,
+		"top": MIN_INSET, "bottom": MIN_INSET,
+	}
+	if win.x <= 0 or win.y <= 0 or area.size.x <= 0 or area.size.y <= 0:
+		return out
+	if view.x <= 0.0 or view.y <= 0.0:
+		return out
+
+	# SEPARATE SCALES PER AXIS. The viewport stretches with aspect "expand",
+	# so the horizontal and vertical ratios differ — the old code measured
+	# vertical insets with the horizontal ratio, which was right only on a
+	# device whose aspect happens to match the design resolution.
+	var sx: float = view.x / float(win.x)
+	var sy: float = view.y / float(win.y)
+
+	out["left"] = clampi(int(float(area.position.x) * sx),
+		MIN_INSET, MAX_INSET)
+	out["right"] = clampi(int(float(win.x - (area.position.x + area.size.x))
+		* sx), MIN_INSET, MAX_INSET)
+	out["top"] = clampi(int(float(area.position.y) * sy),
+		MIN_INSET, MAX_INSET)
+	out["bottom"] = clampi(int(float(win.y - (area.position.y + area.size.y))
+		* sy), MIN_INSET, MAX_INSET)
+	return out
+
+
 func _apply_safe_area() -> void:
-	var top: int = 40
-	var bottom: int = 40
-	var win: Vector2i = DisplayServer.window_get_size()
-	var area: Rect2i = DisplayServer.get_display_safe_area()
-	if win.x > 0 and area.size.x > 0 and area.size.y > 0:
-		var view: Vector2 = get_viewport().get_visible_rect().size
-		var scale: float = view.x / float(win.x)
-		top = int(float(area.position.y) * scale)
-		bottom = int(float(win.y - (area.position.y + area.size.y)) * scale)
-	_safe.add_theme_constant_override("margin_top",
-		clampi(top, 24, 200) + HeroTheme.GAP)
-	_safe.add_theme_constant_override("margin_bottom",
-		clampi(bottom, 24, 200) + HeroTheme.GAP)
-	_safe.add_theme_constant_override("margin_left", HeroTheme.PAD)
-	_safe.add_theme_constant_override("margin_right", HeroTheme.PAD)
+	var m: Dictionary = safe_margins(DisplayServer.window_get_size(),
+		DisplayServer.get_display_safe_area(),
+		get_viewport().get_visible_rect().size)
+	for side in ["left", "right", "top", "bottom"]:
+		_safe.add_theme_constant_override("margin_" + side,
+			int(m[side]) + HeroTheme.GAP)
 
 
 func _build_chrome() -> void:

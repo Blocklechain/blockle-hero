@@ -163,16 +163,19 @@ func _passive_layer() -> Control:
 # means anything. UiShell does the same sum for the menus; the HUD repeats it
 # rather than borrowing it because Play.tscn is launched standalone by several
 # tools/ harnesses, where there is no shell to ask.
-func _safe_insets() -> Vector2:
-	var top: float = 40.0
-	var bottom: float = 40.0
-	var win: Vector2i = DisplayServer.window_get_size()
-	var area: Rect2i = DisplayServer.get_display_safe_area()
-	if win.x > 0 and area.size.x > 0 and area.size.y > 0:
-		var scale: float = _view().x / float(win.x)
-		top = float(area.position.y) * scale
-		bottom = float(win.y - (area.position.y + area.size.y)) * scale
-	return Vector2(clampf(top, 24.0, 200.0), clampf(bottom, 24.0, 200.0))
+## The device's insets, from the ONE place that computes them.
+##
+## This used to be a private copy of UiShell's arithmetic, with the same two
+## bugs: it measured only the top and bottom, and it scaled them by the
+## HORIZONTAL ratio. In landscape — the only way this game is played — the
+## camera cut-out is on a SIDE, so the health plate and the ability keys were
+## being placed under it.
+##
+## A second copy of a calculation is a second place for it to be wrong, and
+## this one was wrong in exactly the way the first one was.
+func _insets() -> Dictionary:
+	return UiShell.safe_margins(DisplayServer.window_get_size(),
+		DisplayServer.get_display_safe_area(), _view())
 
 
 func _view() -> Vector2:
@@ -180,11 +183,13 @@ func _view() -> Vector2:
 
 
 func _build_plate() -> void:
-	var inset: Vector2 = _safe_insets()
+	var inset: Dictionary = _insets()
 	_plate = HeroTheme.panel(Color(HeroTheme.BG_LIFT.r, HeroTheme.BG_LIFT.g,
 		HeroTheme.BG_LIFT.b, 0.82), HeroTheme.LINE)
 	_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_plate.position = Vector2(HeroTheme.PAD, inset.x + HeroTheme.GAP)
+	# Clear of the cut-out on the left edge, not a flat pad.
+	_plate.position = Vector2(float(inset["left"]) + HeroTheme.GAP,
+		float(inset["top"]) + HeroTheme.GAP)
 	# A FIXED WIDTH, NOT A SHARE OF THE SCREEN.
 	#
 	# This was `_view().x - PAD - 340`, which was reasonable in portrait: 796 of
@@ -241,9 +246,10 @@ func _build_message() -> void:
 	_message = HeroTheme.prose("", HeroTheme.F_SMALL, HeroTheme.DIM)
 	_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_message.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_message.offset_left = HeroTheme.PAD
-	_message.offset_right = -HeroTheme.PAD
-	_message.offset_top = _safe_insets().x + 340.0
+	var mi: Dictionary = _insets()
+	_message.offset_left = float(mi["left"]) + HeroTheme.GAP
+	_message.offset_right = -(float(mi["right"]) + HeroTheme.GAP)
+	_message.offset_top = float(mi["top"]) + 340.0
 	_message.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_message)
 
@@ -256,9 +262,14 @@ func _build_message() -> void:
 ## happens to be running at — a headless run gets a square viewport, so a layout
 ## asserted only on live nodes proves nothing about the phone. tools/hudtest.gd
 ## evaluates this for the real screen.
-static func key_layout(view: Vector2, bottom_inset: float) -> Array[Dictionary]:
+static func key_layout(view: Vector2, bottom_inset: float,
+		right_inset: float = 0.0) -> Array[Dictionary]:
+	# RIGHT INSET TOO. The ability keys sit in the bottom-right corner, which
+	# in landscape is where the home indicator runs and, on half the
+	# orientations, where the cut-out is — the basic attack was partly under
+	# it and the arc above it was clipped by the rounded corner.
 	var basic := Vector2(
-		view.x - PAD_MARGIN - KEY_R_BASIC,
+		view.x - right_inset - PAD_MARGIN - KEY_R_BASIC,
 		view.y - bottom_inset - PAD_MARGIN - KEY_R_BASIC)
 	var out: Array[Dictionary] = [
 		{"slot": 0, "centre": basic, "radius": KEY_R_BASIC},
@@ -274,11 +285,12 @@ static func key_layout(view: Vector2, bottom_inset: float) -> Array[Dictionary]:
 
 
 func _build_pad() -> void:
-	var inset: Vector2 = _safe_insets()
+	var inset: Dictionary = _insets()
 	var view: Vector2 = _view()
 
 	_keys.clear()
-	for spec in key_layout(view, inset.y):
+	for spec in key_layout(view, float(inset["bottom"]),
+			float(inset["right"])):
 		_keys.append(_make_key(int(spec["slot"]), spec["centre"],
 			float(spec["radius"])))
 
@@ -286,7 +298,8 @@ func _build_pad() -> void:
 	# looking at their thumb, not at the top of the screen.
 	_locked_banner = HeroTheme.label("", HeroTheme.F_BODY, HeroTheme.DANGER,
 		HORIZONTAL_ALIGNMENT_RIGHT)
-	_locked_banner.position = Vector2(view.x - 700.0 - PAD_MARGIN,
+	_locked_banner.position = Vector2(
+		view.x - float(inset["right"]) - 700.0 - PAD_MARGIN,
 		_keys[0].position.y + KEY_R_BASIC - ARC_RADIUS - KEY_R_ABILITY - 76.0)
 	_locked_banner.size = Vector2(700.0, 60.0)
 	_locked_banner.visible = false
