@@ -353,6 +353,20 @@ const KITE_INNER: float = 0.6
 ## takes puts it out of range and it spends the fight shuffling.
 const STAND_FRACTION: float = 0.72
 
+## A RETREATING ENEMY WALKS. It used to run, at exactly the speed the champion
+## runs — so a melee champion chasing an archer closed at 0 m/s and the fight
+## was unwinnable without ranged abilities the class does not have. Walking
+## away from a running champion loses ground at about 2.8 m/s, which is a
+## chase the player wins in a couple of seconds and still has to commit to.
+const RETREAT_RUN: bool = false
+
+## ...AND ONLY FOR SO LONG. Speed alone still lets an archer back down the
+## whole length of a lane, dragging the player through two more packs. After
+## this many seconds of giving ground it plants and fights.
+const RETREAT_BUDGET: float = 2.0
+## How long it holds before it is allowed to give ground again.
+const RETREAT_REST: float = 4.0
+
 ## THE BOSS MECHANIC. A boss that is only bigger and tougher is an endurance
 ## test; one you have to read is a fight. It winds up a ground slam, the
 ## ground tells you exactly where, and you have SLAM_WARN seconds to not be
@@ -378,6 +392,9 @@ const SLAM_MAX_FRACTION: float = 0.55
 var _brain_t: float = 0.0
 ## Pack indices that have noticed the player. See _think.
 var _awake: Dictionary = {}
+## Seconds since the region opened. The retreat budget is measured against it
+## rather than against frame counts, so it behaves the same at 60 and 120 Hz.
+var _clock: float = 0.0
 ## The enemy id of this map's boss, -1 once it is dead or was never placed.
 var _boss_id: int = -1
 var _kills: int = 0
@@ -519,14 +536,17 @@ func _think(delta: float) -> void:
 		# the single biggest thing the game was throwing away.
 		var stand: float = float(foe.get_meta("stand_off", REACH))
 		if gap > stand:
+			# Back at a comfortable distance: it has earned its footing back.
+			foe.set_meta("retreat_t", 0.0)
 			if not foe.is_moving():
 				foe.move_to(here, true)
 			continue
 		if gap < stand * KITE_INNER and stand > REACH * 2.0:
 			# Too close for what it does. Back off rather than trade punches
-			# it is not built to win.
-			_retreat(foe, here, stand)
-			continue
+			# it is not built to win — but only while it has ground to give.
+			# A cornered archer is a fight, not a chase.
+			if _retreat(foe, here, stand):
+				continue
 		foe.stop()
 		foe.use_ability(_choose_action(foe, gap), here)
 
@@ -550,18 +570,30 @@ func _stand_off(foe: HeroController, spawn: Encounter.Spawn) -> float:
 
 
 ## Step away from the champion, staying on ground that exists.
-func _retreat(foe: HeroController, from: Vector2, want: float) -> void:
+##
+## Returns false when this enemy is out of retreat and must stand and fight.
+func _retreat(foe: HeroController, from: Vector2, want: float) -> bool:
+	# Resting: it gave ground recently and has to hold for a beat.
+	if _clock < float(foe.get_meta("hold_until", 0.0)):
+		return false
+	var spent: float = float(foe.get_meta("retreat_t", 0.0)) + THINK
+	if spent >= RETREAT_BUDGET:
+		# Out of room. Plant, and do not try again until the rest is over.
+		foe.set_meta("retreat_t", 0.0)
+		foe.set_meta("hold_until", _clock + RETREAT_REST)
+		foe.stop()
+		return false
+	foe.set_meta("retreat_t", spent)
+
 	if foe.is_moving():
-		return
+		return true
 	var away: Vector2 = (foe.ground_position() - from)
 	if away.length_squared() < 0.01:
 		away = Vector2(1, 0)
 	var goal: Vector2 = from + away.normalized() * want
 	# move_to pathfinds, so a retreat into a cliff simply does not happen —
-	# it returns false and the enemy holds its ground and fights instead.
-	if not foe.move_to(goal, true):
-		foe.use_ability(_choose_action(foe, from.distance_to(
-			foe.ground_position())), from)
+	# it returns false, and the enemy fights where it stands.
+	return foe.move_to(goal, RETREAT_RUN)
 
 
 ## Which of its actions this enemy uses, out of the ones the difficulty lets it.
@@ -1136,6 +1168,7 @@ func _process(d: float) -> void:
 	if _holding and _hero != null and not _hero.is_busy():
 		if not _hero.is_moving():
 			_order_move(_hold_at)
+	_clock += d
 	_auto_attack()
 	_think(d)
 	_advance_slam(d)

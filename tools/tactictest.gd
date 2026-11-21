@@ -99,6 +99,53 @@ func _go() -> void:
 	check("a ranged enemy backs off when you close on it",
 		end_gap > start_gap + 1.0, "%.1f m -> %.1f m" % [start_gap, end_gap])
 
+	print("\n=== and a melee champion can still catch one ===")
+	# THE WHOLE POINT. A ranged enemy that backs away at the speed the
+	# champion chases is unkillable by any class without ranged abilities —
+	# which is two of the three. It retreated by RUNNING, at exactly
+	# RUN_SPEED, so the gap closed at 0 m/s forever.
+	check("retreating is a walk, not a run", not play.RETREAT_RUN,
+		"walk %.1f vs chase %.1f m/s" % [HeroController.WALK_SPEED,
+			HeroController.RUN_SPEED])
+	check("...so the champion gains ground on it",
+		HeroController.RUN_SPEED > HeroController.WALK_SPEED,
+		"%.1f m/s of closing speed" % [HeroController.RUN_SPEED
+			- HeroController.WALK_SPEED])
+
+	# Even Swift, the fastest an elite gets, must not outrun the chase.
+	var swift: float = HeroController.WALK_SPEED * (1.0 + Elite.SWIFT_HASTE)
+	check("...even against a Swift elite",
+		swift < HeroController.RUN_SPEED,
+		"swift retreat %.1f m/s vs chase %.1f" % [swift,
+			HeroController.RUN_SPEED])
+
+	# AND IT CANNOT BACK AWAY FOREVER. Driven directly rather than through a
+	# chase: whether the champion pursues depends on which one the save
+	# happens to own, and a ranged champion correctly stands and shoots
+	# instead — so a chase loop here would be measuring the hero's class, not
+	# the archer's budget.
+	var kiter: HeroController = ranged[0]
+	kiter.set_meta("retreat_t", 0.0)
+	kiter.set_meta("hold_until", 0.0)
+	var gave_way: int = 0
+	var planted: bool = false
+	for i in range(12):
+		if play._retreat(kiter, me.ground_position(), 8.0):
+			gave_way += 1
+		else:
+			planted = true
+			break
+	check("...and it runs out of ground and plants", planted,
+		"gave way %d times, then held" % gave_way)
+	check("...for about the budget, not forever",
+		gave_way >= 3 and gave_way <= 8,
+		"%.1fs of budget at %.2fs a think" % [play.RETREAT_BUDGET,
+			play.THINK])
+	# Having planted, it must stay planted for the rest — otherwise it
+	# alternates step-back/step-back and the chase never ends.
+	check("...and holds rather than immediately giving way again",
+		not play._retreat(kiter, me.ground_position(), 8.0))
+
 	print("\n=== a pack wakes together ===")
 	var packs: Dictionary = {}
 	for n in play.get_children():
