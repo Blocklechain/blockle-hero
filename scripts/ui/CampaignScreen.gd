@@ -69,12 +69,17 @@ func build() -> void:
 		_tier_buttons.append(b)
 		tiers.add_child(b)
 
-	# UNDER THE ART, NOT ABOVE THE LIST. This runs to two lines ("Normal:
-	# enemies at level 1 to 16..."), and above a hundred-entry list that is two
-	# lines the player cannot scroll to a map with. It reads as a caption to the
-	# difficulty they just pressed either way.
-	_tier_note = HeroTheme.prose("", HeroTheme.F_SMALL, HeroTheme.DIM)
-	card.add_child(_tier_note)
+	# ONE LINE, BESIDE THE BUTTONS IT DESCRIBES.
+	#
+	# This was four lines of reference prose under the art, taking as much of
+	# the column as the painting did — so the biggest art asset on the screen
+	# was rendered as a thumbnail to make room for a paragraph nobody reads
+	# twice. Clipped to a single line directly under the difficulty row, where
+	# it reads as a caption to the button just pressed.
+	_tier_note = HeroTheme.label("", HeroTheme.F_SMALL, HeroTheme.DIM)
+	_tier_note.clip_text = true
+	_tier_note.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	col.add_child(_tier_note)
 
 	_list = VirtualList.new()
 	_list.configure(_make_row, _bind_row, 170)
@@ -111,12 +116,14 @@ func refresh() -> void:
 	var blocked: String = Campaign.entry_blocked_reason(_tier, p,
 		roster.unlocked_tier)
 	if blocked == "":
-		_tier_note.text = ("%s: enemies at level %d to %d, and better loot. " \
-			+ "Difficulty is unlocked for every champion at once; the levels " \
-			+ "you earn are %s's alone.") % [Campaign.tier_name(_tier),
-				Campaign.enemy_level(0, _tier),
-				Campaign.enemy_level(Campaign.region_count() - 1, _tier),
-				ChampionName.of(hero)]
+		# The facts that change with the tier, and nothing else. The rules it
+		# used to recite — that difficulty unlocks account-wide while levels
+		# belong to one champion — are the same on every tier, so repeating
+		# them under every press taught nobody anything after the first.
+		_tier_note.text = "%s · enemies level %d to %d · richer loot" % [
+			Campaign.tier_name(_tier),
+			Campaign.enemy_level(0, _tier),
+			Campaign.enemy_level(Campaign.region_count() - 1, _tier)]
 		_tier_note.add_theme_color_override("font_color", HeroTheme.DIM)
 	else:
 		_tier_note.text = "%s is closed to %s — %s." % [

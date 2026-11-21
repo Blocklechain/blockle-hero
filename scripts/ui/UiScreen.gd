@@ -55,6 +55,7 @@ func _ready() -> void:
 	header = HBoxContainer.new()
 	header.add_theme_constant_override("separation", HeroTheme.GAP)
 	header.custom_minimum_size = Vector2(0, HeroTheme.TAP)
+	header.visible = wants_header()
 	col.add_child(header)
 
 	if show_back():
@@ -95,9 +96,13 @@ func show_back() -> bool:
 	return true
 
 
-## The title screen owns its whole surface and draws no chrome.
+## Whether this screen draws its OWN title row.
+##
+## False for everything now: the back button and the title moved into the
+## currency bar, which was already on screen and already had the room. A
+## screen that wants a header of its own can still say so.
 func wants_header() -> bool:
-	return true
+	return false
 
 
 ## Where the back button goes. Champion-contextual screens return to the sheet,

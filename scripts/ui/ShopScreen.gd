@@ -45,7 +45,9 @@ func back_route() -> String:
 
 
 func build() -> void:
-	content.add_child(context_strip())
+	# NO CONTEXT STRIP. It was a full-width band naming the champion directly
+	# above a column that shows that champion, in their rarity colour, turning.
+	# Saying it twice is what "cluttered" means.
 
 	# WHO YOU ARE SHOPPING FOR, on the left. Stacked, the stock list got about
 	# 190 px of a 940 px screen — one item and the top of the next — because

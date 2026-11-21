@@ -36,7 +36,9 @@ func back_route() -> String:
 
 
 func build() -> void:
-	content.add_child(context_strip())
+	# NO CONTEXT STRIP — the gear panel's heading names the champion instead,
+	# which is where the player is already looking to read the numbers it is
+	# talking about.
 
 	# THE GEAR GOES ON THE RIGHT, THE EXPLANATION ON THE LEFT.
 	#
@@ -129,8 +131,11 @@ func refresh() -> void:
 	var damage: float = roster.effective_damage(hero)
 	var health: float = roster.effective_health(hero)
 
-	var col := UiScreen.group(_summary, "WHAT YOUR GEAR IS DOING",
-		HeroTheme.ACCENT)
+	# NAMES THE CHAMPION, because the strip that used to do that is gone and
+	# these numbers are meaningless without knowing whose they are.
+	var col := UiScreen.group(_summary,
+		"%s — WHAT THE GEAR IS DOING" % ChampionName.of(hero).to_upper(),
+		Champion.colour(hero))
 	col.add_child(_delta_line("Damage", bare_damage, damage))
 	col.add_child(_delta_line("Health", bare_health, health))
 	col.add_child(HeroTheme.rule())
@@ -150,10 +155,21 @@ func refresh() -> void:
 		cell.add_child(HeroTheme.label(String(Stats.ATTR_SHORT[a]),
 			HeroTheme.F_SMALL, HeroTheme.DIM, HORIZONTAL_ALIGNMENT_CENTER))
 		attr_row.add_child(cell)
-	col.add_child(HeroTheme.prose(
-		"Gear is never drawn on your champion — these numbers are the whole "
-		+ "of what it does. The stash is shared by every champion you own; "
-		+ "what is worn belongs to %s." % ChampionName.of(hero)))
+	# ONE LINE. This was three lines of rules that are true on every visit and
+	# change with nothing — so after the first read it was a paragraph the
+	# player scrolled past to reach the numbers it was explaining, and it was
+	# clipping mid-sentence to do it. The part worth keeping is the part a
+	# player gets wrong: the stash is shared, the gear is not.
+	# Two short lines, not a wrapped paragraph. The first is a DISCLOSURE and
+	# has to stay: a player who buys a legendary and sees their champion look
+	# identical will assume the purchase failed. The second is the rule people
+	# actually get wrong.
+	for line in ["Gear is never drawn on your champion — numbers only",
+			"Stash shared · what is worn is %s's" % ChampionName.of(hero)]:
+		var note := HeroTheme.label(line, HeroTheme.F_SMALL, HeroTheme.FAINT)
+		note.clip_text = true
+		note.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		col.add_child(note)
 
 	_pool_tab_button.text = "Stash (%d)" % roster.stash.count()
 	_rebuild_equipped(p)

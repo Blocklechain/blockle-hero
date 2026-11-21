@@ -200,6 +200,15 @@ func _go(route: String, arg: Variant = null) -> void:
 	var chrome: bool = route != UiRoute.TITLE
 	_bar.visible = chrome
 	_tabs.visible = chrome
+	# The screen's name and its way back now ride in the currency bar rather
+	# than in a band of their own. Set here, where the route is known, so the
+	# screens stay unaware of the chrome around them.
+	if chrome:
+		var back_to: String = _screen.back_route()
+		var who: String = _screen.hero
+		_bar.set_context(_screen.screen_title(),
+			Callable() if not _screen.show_back()
+				else func() -> void: _go(back_to, who))
 	# The character sheet is pushed on top of the champion list, so the list's
 	# tab stays lit rather than leaving every tab dark.
 	var lit: String = UiRoute.CHAMPIONS if route == UiRoute.SHEET else route
