@@ -430,7 +430,8 @@ func _show_cast(ability: Ability, caster: HeroController,
 		return
 	Vfx.play(self, ability, who, HeroClass.for_hero(who),
 		caster.ground_position(), caster.rotation.y,
-		target if target != Vector2.INF else caster.ground_position())
+		target if target != Vector2.INF else caster.ground_position(),
+		caster.position.y)
 
 
 # ------------------------------------------------------------------------------
@@ -474,12 +475,54 @@ func _on_enemy_died(id: int) -> void:
 	if i < 0:
 		return
 	_kills += 1
+	_award_xp()
 	var node: Node3D = _enemy_nodes[i]
 	if node != null and is_instance_valid(node):
 		_loot.on_kill(_enemies[i], node.global_position)
 	if id == _boss_id:
 		_boss_id = -1
 		_clear_region()
+
+
+## Pay the champion for a kill.
+##
+## NOTHING DID THIS. HeroProgress.gain_xp() and Campaign.xp_per_kill() were
+## both written and both called only by tests, so a champion could clear a
+## region, a difficulty, the whole campaign, and still be level 1. Every system
+## downstream — skill points, the merchant's stock level, enemy scaling, the
+## gear the stash will let you wear — reads that level, so none of them had
+## ever moved either.
+##
+## The live body is levelled too, not just the save. A level that only appears
+## after you walk back to the menu is a level the player does not connect to
+## the kill that earned it.
+func _award_xp() -> void:
+	if _hero == null or _hero.rig == null:
+		return
+	var who: String = _hero.rig.hero_name
+	var p: HeroProgress = _account.progress(who)
+	if p == null:
+		return
+	var before: int = p.level
+	var gained: int = p.gain_xp(Campaign.xp_per_kill(region_index, tier))
+	if gained <= 0:
+		return
+	_hud.set_message("%s reaches level %d." % [ChampionName.of(who), p.level])
+	Audio.play(Audio.Cue.CAST, 1.9)
+	# Re-derive the body at the new level, keeping the damage already taken:
+	# a level-up that healed you to full would make levelling mid-fight the
+	# strongest move in the game.
+	var hurt: float = _hero.body.max_health - _hero.body.health
+	var fresh: Combatant = Combat.champion_body(_account, who, p.level,
+		Rng.seed_of(world_seed, who), ChampionName.of(who))
+	_hero.body.level = fresh.level
+	_hero.body.stats = fresh.stats
+	_hero.body.max_health = fresh.max_health
+	_hero.body.health = maxf(fresh.max_health - hurt, 1.0)
+	_hero.body.weapon_power = fresh.weapon_power
+	_hero.body.armour = fresh.armour
+	_loot.champion_level = p.level
+	print("%s: level %d -> %d" % [who, before, p.level])
 
 
 ## THE BOSS IS DOWN. Bank the clear and tell whoever launched this scene.

@@ -239,7 +239,8 @@ func _exit_tree() -> void:
 ## arc it would have drawn on top of nine others, and the frame rate is worth
 ## more than that arc.
 static func play(parent: Node, ability: Ability, hero: String, cls: int,
-		origin: Vector2, facing: float, target: Vector2) -> Vfx:
+		origin: Vector2, facing: float, target: Vector2,
+		ground_y: float = 0.0) -> Vfx:
 	if parent == null or ability == null or not parent.is_inside_tree():
 		return null
 	if _live >= MAX_LIVE:
@@ -249,6 +250,16 @@ static func play(parent: Node, ability: Ability, hero: String, cls: int,
 	var fx: Vfx = _build(ability, sig, origin, facing, target)
 	if fx == null:
 		return null
+
+	# ONTO THE GROUND THE FIGHT IS ON. Every archetype builds itself around an
+	# absolute Y — 0.06 for a ground ring, 1.15 for a bolt leaving the hand —
+	# because it only knows the caster's position as a Vector2 of x and z.
+	# The champion stands at terrain.height_at(), which is metres above sea
+	# level nearly everywhere, so the entire effects system was rendering
+	# UNDERNEATH the world. It fired, it animated, it freed itself on time,
+	# and no player ever saw any of it.
+	fx.position.y += ground_y
+
 	_live += 1
 	parent.add_child(fx)
 	return fx
