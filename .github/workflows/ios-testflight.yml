@@ -179,7 +179,7 @@ jobs:
                    tactictest safetest \
                    slamtest shapetest modetest dresstest trainingtest \
                    questtest partytest selecttest navtest \
-                   storeuitest iapmanifest benchtest \
+                   storeuitest iapmanifest benchtest reachtest \
                    classcheck; do
             echo "--- $t"
             "$GODOT" --headless --path . --script "tools/$t.gd"

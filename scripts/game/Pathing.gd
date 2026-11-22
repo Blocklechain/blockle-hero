@@ -164,6 +164,85 @@ func clear_line(a: Vector2, b: Vector2) -> bool:
 	return true
 
 
+# ------------------------------------------------------------------------------
+# REACHABILITY, which is not the same question as walkability.
+#
+# is_walkable() answers "is this cell open", and a cell can be open while
+# sitting in a pocket the player cannot get to. Encounter placement used the
+# walkable test alone, so five of the hundred campaign maps put the BOSS in a
+# sealed pocket — walkable, visible on no path, and unkillable. The region
+# then never clears, and because region N+1 is sealed until N is cleared, the
+# campaign stops there.
+#
+# This is a FLOOD FILL rather than a path query because of what it costs to
+# say NO. A failed A* explores the entire connected component before giving
+# up, and placement wants a dozen tries — so a dozen refusals is a dozen full
+# sweeps of a 200,000-cell grid, on a phone, during generation. One fill does
+# the same work once and then answers in constant time.
+# ------------------------------------------------------------------------------
+
+## Every cell reachable from `origin`, as a mask parallel to Terrain.walk.
+##
+## Pass it back to in_region() to test a point. Built once per placement pass,
+## because the answer is the same for every spawn in a region.
+func region_from(origin: Vector2) -> PackedByteArray:
+	var mask := PackedByteArray()
+	mask.resize(_t.size * _t.size)
+	var start: Vector2i = to_cell(origin)
+	if not _open(start.x, start.y):
+		start = to_cell(_t.nearest_walkable(origin))
+	if not _open(start.x, start.y):
+		# Nothing is walkable anywhere near the origin. An empty mask is the
+		# honest answer; the caller falls back rather than trusting it.
+		return mask
+
+	var queue := PackedInt32Array([start.y * _t.size + start.x])
+	mask[start.y * _t.size + start.x] = 1
+	var head: int = 0
+	while head < queue.size():
+		var at: int = queue[head]
+		head += 1
+		var x: int = at % _t.size
+		var y: int = at / _t.size
+		# FOUR-WAY, deliberately. The grid allows diagonals only when both
+		# orthogonal neighbours are open, so a four-way fill can never claim
+		# a cell A* would refuse to route to — it is the conservative
+		# direction, and being conservative here means never promising a
+		# route that does not exist.
+		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1),
+				Vector2i(0, -1)]:
+			var nx: int = x + d.x
+			var ny: int = y + d.y
+			if not _open(nx, ny):
+				continue
+			var ni: int = ny * _t.size + nx
+			if mask[ni] == 1:
+				continue
+			mask[ni] = 1
+			queue.append(ni)
+	return mask
+
+
+## Is `p` inside a mask from region_from()? An empty mask answers false for
+## everything, which is what makes a failed fill fall through to a fallback
+## rather than silently approving every point.
+func in_region(mask: PackedByteArray, p: Vector2) -> bool:
+	if mask.size() != _t.size * _t.size:
+		return false
+	var c: Vector2i = to_cell(p)
+	return mask[c.y * _t.size + c.x] == 1
+
+
+## How many cells the mask covers. Used to tell "the fill failed" from "the
+## region really is tiny".
+static func region_size(mask: PackedByteArray) -> int:
+	var n: int = 0
+	for b in mask:
+		if b == 1:
+			n += 1
+	return n
+
+
 func _open(x: int, y: int) -> bool:
 	if x < 0 or y < 0 or x >= _t.size or y >= _t.size:
 		return false

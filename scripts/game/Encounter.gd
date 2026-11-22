@@ -382,8 +382,11 @@ static func build(region_index: int, tier: int, campaign_seed: int,
 			cast_for(region_index, campaign_seed, playable, avoid),
 			pathing, player_at)
 	else:
+		# THE PLAN IS PASSED NOW. It was handed to _spine only, so an arena
+		# map's boss was placed at a random bearing from the player while the
+		# boss arena the layout had carved for it stood empty.
 		out = _ring(region_index, tier, campaign_seed,
-			_pool(playable, avoid), pathing, player_at)
+			_pool(playable, avoid), pathing, player_at, plan)
 
 	# Stamped here, after placement, so every path through this function gets
 	# it — a ramp applied in only one of the two placers is the early campaign
@@ -406,10 +409,15 @@ const RING_PACK_SIZE: int = 3
 
 
 static func _ring(region_index: int, tier: int, campaign_seed: int,
-		pool: PackedStringArray, pathing: Pathing, player_at: Vector2) -> Array:
+		pool: PackedStringArray, pathing: Pathing, player_at: Vector2,
+		plan: Layout = null) -> Array:
 	var out: Array = []
 	var seed: int = Campaign.region_seed(campaign_seed, region_index)
 	var level: int = Campaign.enemy_level(region_index, tier)
+	# EVERYTHING THIS FUNCTION PLACES MUST BE REACHABLE FROM THE PLAYER.
+	# Computed once: the answer is the same for every spawn in the region, and
+	# one flood fill is far cheaper than a dozen failed path queries each.
+	var region: PackedByteArray = pathing.region_from(player_at)
 
 	var span: int = MAX_PACK - MIN_PACK
 	var count: int = MIN_PACK + int(Rng.unit2(seed, region_index, 11) * float(span + 1))
@@ -431,7 +439,7 @@ static func _ring(region_index: int, tier: int, campaign_seed: int,
 		# down, so membership is by proximity instead: consecutive spawns
 		# share a pack, which is also how they end up standing together.
 		s.pack = i / maxi(RING_PACK_SIZE, 1)
-		s.at = _place(pathing, player_at, seed, i, 9.0, 34.0)
+		s.at = _place(pathing, player_at, seed, i, 9.0, 34.0, region)
 		out.append(s)
 
 	# The boss. Drawn from the rarest champions available so the silhouette at
@@ -449,27 +457,92 @@ static func _ring(region_index: int, tier: int, campaign_seed: int,
 	boss.cls = HeroClass.for_hero(boss.hero)
 	boss.size = BOSS_SIZE
 	boss.level = level + 2
-	boss.at = _place(pathing, player_at, seed, 777, 26.0, 46.0)
+	boss.at = _boss_at(pathing, plan, player_at, seed, region)
 	out.append(boss)
 	return out
+
+
+## Where an arena map's boss stands.
+##
+## THE LAYOUT'S OWN BOSS ARENA, when there is one and it can be reached. Every
+## layout places a BOSS node — Layout._build_campaign puts it as far from the
+## entry as the region allows — and the terrain carves an arena around it. The
+## ring placer ignored all of that and dropped the boss 26 to 46 metres from
+## the player on a random bearing, so the thing a region leads up to could end
+## up behind the entrance, and the arena built for it was never used.
+##
+## Falls back to the ring, and then to the player's own ground. Reachability is
+## required at every step: of the ways this can go wrong, a boss that is merely
+## badly placed is recoverable and a boss that cannot be walked to is a map
+## that can never be finished.
+static func _boss_at(pathing: Pathing, plan: Layout, player_at: Vector2,
+		seed: int, region: PackedByteArray) -> Vector2:
+	if plan != null:
+		var node: Dictionary = plan.node_of_kind(Layout.BOSS)
+		var want: Vector2 = node.get("pos", Vector2.INF)
+		if want != Vector2.INF:
+			var snapped: Vector2 = pathing.nearest_walkable_centre(want)
+			if pathing.in_region(region, snapped) \
+					and snapped.distance_to(player_at) >= SAFE_RADIUS:
+				return snapped
+	return _place(pathing, player_at, seed, 777, 26.0, 46.0, region)
 
 
 ## A walkable point in a ring around the player. Rejects anything inside
 ## SAFE_RADIUS and falls back to the nearest walkable cell rather than returning
 ## an unwalkable point, because a spawn inside geometry is invisible and
 ## unkillable and the player just hears something hitting them.
+##
+## WALKABLE IS NOT ENOUGH, and that cost five of a hundred maps. A cell can be
+## open and still sit in a pocket the player cannot walk to, and this function
+## checked only openness — so the boss could be placed somewhere real, visible
+## on no path, and unkillable. The region then never cleared, and because the
+## next region is sealed until this one is, the campaign stopped dead there.
+##
+## `region` is a reachability mask from Pathing.region_from(player). When it is
+## supplied, a candidate must be inside it. Pack placement passes it too: an
+## unreachable pack member is not a progression stopper, but it is an enemy
+## that can shoot a player who has no way to answer.
 static func _place(pathing: Pathing, origin: Vector2, seed: int, i: int,
-		near: float, far: float) -> Vector2:
+		near: float, far: float,
+		region: PackedByteArray = PackedByteArray()) -> Vector2:
+	var want_region: bool = region.size() > 0
 	for attempt in range(12):
 		var a: float = Rng.unit2(seed, i * 31 + attempt, 3) * TAU
 		var r: float = near + Rng.unit2(seed, i * 31 + attempt, 5) * (far - near)
 		var p: Vector2 = origin + Vector2(cos(a), sin(a)) * r
 		if p.distance_to(origin) < SAFE_RADIUS:
 			continue
-		if pathing.is_walkable(p):
-			return pathing.nearest_walkable_centre(p)
-	# Everything was blocked — push out along one axis and snap.
-	return pathing.nearest_walkable_centre(origin + Vector2(far, 0.0))
+		if not pathing.is_walkable(p):
+			continue
+		var snapped: Vector2 = pathing.nearest_walkable_centre(p)
+		# Checked on the SNAPPED point, not the candidate: snapping can move a
+		# point across a wall into the pocket next door, which is precisely
+		# how a reachable candidate became an unreachable spawn.
+		if want_region and not pathing.in_region(region, snapped):
+			continue
+		return snapped
+	# Nothing in the ring worked. Spiral outward and inward over the whole
+	# plausible range rather than pushing along one axis, which was the old
+	# fallback and is the single worst direction to trust — it is the one
+	# bearing nothing has checked.
+	for ring in [far, far * 0.75, near, far * 1.25, near * 0.6]:
+		for step in range(16):
+			var a2: float = TAU * float(step) / 16.0
+			var p2: Vector2 = origin + Vector2(cos(a2), sin(a2)) * float(ring)
+			if not pathing.is_walkable(p2):
+				continue
+			var snap2: Vector2 = pathing.nearest_walkable_centre(p2)
+			if want_region and not pathing.in_region(region, snap2):
+				continue
+			if snap2.distance_to(origin) < SAFE_RADIUS:
+				continue
+			return snap2
+	# THE LAST RESORT IS THE PLAYER'S OWN GROUND, which is reachable by
+	# definition because they are standing on it. A spawn too close is a bad
+	# encounter; a spawn in a sealed pocket is an unfinishable map, and of the
+	# two the recoverable one is the right failure.
+	return pathing.nearest_walkable_centre(origin)
 
 
 # ------------------------------------------------------------------------------
@@ -499,6 +572,9 @@ static func _spine(lane: Lane, index: int, tier: int, campaign_seed: int,
 	var seed: int = Campaign.region_seed(campaign_seed, index)
 	var dread: float = Campaign.dread(index)
 	var level: int = Campaign.enemy_level(index, tier)
+	# One flood fill for the whole region — see _place() for why walkability
+	# alone is not enough and why this is not a path query.
+	var _lane_region: PackedByteArray = pathing.region_from(player_at)
 	var length: float = maxf(lane.total_length(), 0.001)
 
 	var boss_node: Dictionary = lane.node_of_kind(Layout.BOSS)
@@ -568,7 +644,8 @@ static func _spine(lane: Lane, index: int, tier: int, campaign_seed: int,
 				+ (1 if elite else 0)
 			out.append(s)
 
-	out.append(_boss_at_the_end(lane, pathing, boss_node, cast, seed, dread, level))
+	out.append(_boss_at_the_end(lane, pathing, boss_node, cast, seed, dread,
+		level, player_at, _lane_region))
 	return out
 
 
@@ -730,7 +807,8 @@ static func _legal(p: Vector2, player_at: Vector2, boss_c: Vector2,
 ## INSIDE the arena it waits — see BOSS_DEPTH_*.
 static func _boss_at_the_end(lane: Lane, pathing: Pathing,
 		boss_node: Dictionary, cast: PackedStringArray, seed: int, dread: float,
-		level: int) -> Spawn:
+		level: int, player_at: Vector2 = Vector2.ZERO,
+		region: PackedByteArray = PackedByteArray()) -> Spawn:
 	var s := Spawn.new()
 	s.is_boss = true
 	s.seed = Rng.hash2(seed, 9999, 7)
@@ -757,6 +835,18 @@ static func _boss_at_the_end(lane: Lane, pathing: Pathing,
 	# floor is always walkable, because the carve flattens it.
 	if at.distance_to(centre) > r:
 		at = pathing.nearest_walkable_centre(centre)
+	# AND IT MUST BE REACHABLE. A lane carves a corridor to its boss arena, so
+	# this is far less likely to fail here than on an arena map — but "less
+	# likely" is how the arena bug shipped, and the cost of being wrong is
+	# identical: a region that can never be cleared, blocking every region
+	# after it. The arena centre first, then anywhere reachable near it.
+	if region.size() > 0 and not pathing.in_region(region, at):
+		var floor_centre: Vector2 = pathing.nearest_walkable_centre(centre)
+		if pathing.in_region(region, floor_centre):
+			at = floor_centre
+		else:
+			at = _place(pathing, player_at, seed, 7777, maxf(r, 20.0),
+				maxf(r * 2.0, 44.0), region)
 	s.at = at
 	return s
 
