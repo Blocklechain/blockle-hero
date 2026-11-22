@@ -40,6 +40,12 @@ const SLIDE: float = 0.18
 
 ## Every destination, in the order they are offered. ROUTE, LABEL, GLYPH.
 ##
+## EVERY SCREEN IN THE GAME IS IN THIS LIST. That is now load-bearing rather
+## than tidy: the back chevron above the panel is gone, so a screen missing
+## from here is a screen with no way out of it except whatever route it
+## happens to nominate. navtest asserts the list against UiShell's own
+## routing table so one cannot drift from the other.
+##
 ## Ordered by how often a player wants it on the way into a run rather than
 ## alphabetically or by when it was built: the campaign is what they came for,
 ## the party and the board are decided just before going, and the shops are
@@ -49,13 +55,20 @@ const ITEMS: Array = [
 	[UiRoute.PARTY, "Party", UiGlyph.Kind.PARTY],
 	[UiRoute.QUESTS, "Contracts", UiGlyph.Kind.SCROLL],
 	[UiRoute.CHAMPIONS, "Champions", UiGlyph.Kind.ROSTER],
+	# THE CHARACTER SHEET. It was reachable only by tapping a champion in the
+	# roster and leavable only by the chevron that is now gone, so without a
+	# row of its own it would be a screen you can enter and not leave.
+	[UiRoute.SHEET, "Champion", UiGlyph.Kind.BLADE],
 	[UiRoute.STASH, "Stash", UiGlyph.Kind.CHEST],
 	[UiRoute.SHOP, "Merchant", UiGlyph.Kind.SCALES],
 	[UiRoute.TRAINING, "Training", UiGlyph.Kind.HOURGLASS],
-	# LAST, deliberately. The store is the one destination whose placement is
-	# a decision about the player rather than about convenience: putting it
-	# first is what a game does when the purchase matters more than the game.
+	# The store is placed late deliberately: putting it first is what a game
+	# does when the purchase matters more than the game.
 	[UiRoute.STORE, "Store", UiGlyph.Kind.GEM],
+	# The front door, last. With no back button this is the only way back to
+	# the title screen, which is also the only way to pick a different save
+	# ending or simply to stop.
+	[UiRoute.TITLE, "Title", UiGlyph.Kind.MARK],
 ]
 
 var _open: bool = false

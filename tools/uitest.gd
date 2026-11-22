@@ -192,13 +192,14 @@ func _screens_build(heroes: PackedStringArray) -> void:
 	check("shell boots on the title screen",
 		shell.current_route() == UiRoute.TITLE
 		and shell.current_screen() is TitleScreen)
-	# NOT "Play" any more, and deliberately so: the title says Begin to
-	# someone who has never played and Continue · <region> to someone who
-	# has. Asserting either, because this roster could legitimately be in
-	# either state and the contract is "there is one obvious way in".
-	var way_in: Button = _button_with(shell.current_screen(), "Begin")
-	if way_in == null:
-		way_in = _button_with(shell.current_screen(), "Continue")
+	# ONE DOOR, SAYING THE SAME THING TO EVERYONE. This used to accept either
+	# "Begin" or "Continue · <region>", because the title screen behaved
+	# differently for a new and a returning player — it was also carrying six
+	# quick links, because the bottom tab strip only had room for four
+	# destinations. The left panel holds every destination now, so the title
+	# screen is a door and nothing else. The two-state behaviour, and the
+	# contract that went with it, is tools/titletest.gd's subject.
+	var way_in: Button = _button_with(shell.current_screen(), "Enter game")
 	check("the title screen offers one obvious way in", way_in != null,
 		way_in.text if way_in != null else "no primary button")
 

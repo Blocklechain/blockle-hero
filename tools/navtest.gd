@@ -95,6 +95,29 @@ func _destinations() -> void:
 	check("it holds more than the old four tabs",
 		NavPanelS.ITEMS.size() >= 7, "%d destinations" % NavPanelS.ITEMS.size())
 
+	# EVERY SCREEN THE SHELL CAN BUILD HAS A ROW.
+	#
+	# This is load-bearing now rather than tidy: the back chevron above the
+	# panel is gone, so a screen missing from the panel is a screen with no
+	# way out of it. Checked against UiShell's own routing table — every
+	# route it will build a screen for must be offered — so the two cannot
+	# drift apart.
+	var routes: Dictionary = {}
+	for item in NavPanelS.ITEMS:
+		routes[String(item[0])] = true
+	var orphans: PackedStringArray = PackedStringArray()
+	for route in [UiRoute.TITLE, UiRoute.CHAMPIONS, UiRoute.SHEET,
+			UiRoute.STASH, UiRoute.SHOP, UiRoute.CAMPAIGN, UiRoute.TRAINING,
+			UiRoute.QUESTS, UiRoute.PARTY, UiRoute.STORE]:
+		var made: UiScreen = shell.call("_make_screen", route)
+		if made == null:
+			continue
+		made.queue_free()
+		if not routes.has(route):
+			orphans.append(route)
+	check("every screen the shell can build has a row in the panel",
+		orphans.is_empty(), "missing: %s" % orphans)
+
 	var names: Dictionary = {}
 	var glyphs: Dictionary = {}
 	for item in NavPanelS.ITEMS:
@@ -252,6 +275,19 @@ func _in_the_shell() -> void:
 
 	# The old bottom strip must be gone, not merely hidden behind the new one.
 	check("the bottom tab strip is gone", shell.get("_tabs") == null)
+
+	# AND SO IS THE BACK CHEVRON ABOVE THE PANEL. Two ways around the game
+	# that disagree is worse than one: "back" went wherever the screen
+	# nominated — the roster from the sheet, the sheet from the campaign — so
+	# the same control meant something different on every screen while the
+	# panel beside it always meant the same thing.
+	shell.goto(UiRoute.SHEET)
+	for i in range(6):
+		await process_frame
+	var bar: Node = shell.get("_bar")
+	var back: Node = bar.get("_back") if bar != null else null
+	check("there is no back button above the panel",
+		back == null or not (back as Control).visible)
 
 	shell.goto(UiRoute.CHAMPIONS)
 	for i in range(6):

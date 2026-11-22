@@ -288,15 +288,21 @@ func _go(route: String, arg: Variant = null) -> void:
 	# next screen wants.
 	if not chrome:
 		_nav.set_open(false)
-	# The screen's name and its way back now ride in the currency bar rather
-	# than in a band of their own. Set here, where the route is known, so the
-	# screens stay unaware of the chrome around them.
+	# THE SCREEN'S NAME ONLY. NO BACK BUTTON.
+	#
+	# There was a chevron here, above the navigation panel, and with the panel
+	# holding every destination it was a second way to do the same thing that
+	# disagreed with the first: "back" went to whatever route the screen
+	# nominated, which on the character sheet is the roster and on the
+	# campaign is the sheet, so the same control meant something different on
+	# every screen while the panel beside it always meant the same thing.
+	#
+	# One way around the game is better than two, and the one that is always
+	# visible and always consistent is the panel. Callable() is passed
+	# deliberately — CurrencyBar hides the chevron and puts the mark back in
+	# its place when there is no handler.
 	if chrome:
-		var back_to: String = _screen.back_route()
-		var who: String = _screen.hero
-		_bar.set_context(_screen.screen_title(),
-			Callable() if not _screen.show_back()
-				else func() -> void: _go(back_to, who))
+		_bar.set_context(_screen.screen_title(), Callable())
 	# The character sheet is pushed on top of the champion list, so the list's
 	# row stays lit rather than leaving every row dark.
 	var lit: String = UiRoute.CHAMPIONS if route == UiRoute.SHEET else route
