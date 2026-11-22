@@ -22,6 +22,11 @@ on:
     paths:
       - 'scripts/**'
       - 'scenes/**'
+      # THE HARNESSES ARE THE CHECKS. Without this a commit that only
+      # touches tools/ does not run them — which is exactly what happened to
+      # a spectacletest fix: it was pushed, no run was created, and the last
+      # red run stayed the newest result on main.
+      - 'tools/**'
       - 'assets/**'
       - 'project.godot'
       - 'icon.png'
