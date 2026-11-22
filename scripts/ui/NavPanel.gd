@@ -52,6 +52,10 @@ const ITEMS: Array = [
 	[UiRoute.STASH, "Stash", UiGlyph.Kind.CHEST],
 	[UiRoute.SHOP, "Merchant", UiGlyph.Kind.SCALES],
 	[UiRoute.TRAINING, "Training", UiGlyph.Kind.HOURGLASS],
+	# LAST, deliberately. The store is the one destination whose placement is
+	# a decision about the player rather than about convenience: putting it
+	# first is what a game does when the purchase matters more than the game.
+	[UiRoute.STORE, "Store", UiGlyph.Kind.GEM],
 ]
 
 var _open: bool = false

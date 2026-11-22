@@ -9,6 +9,7 @@ const TrainingScreen := preload("res://scripts/ui/TrainingScreen.gd")
 const QuestScreen := preload("res://scripts/ui/QuestScreen.gd")
 const PartyScreen := preload("res://scripts/ui/PartyScreen.gd")
 const NavPanel := preload("res://scripts/ui/NavPanel.gd")
+const StoreScreen := preload("res://scripts/ui/StoreScreen.gd")
 # ------------------------------------------------------------------------------
 # THE MENU SHELL: the thing that makes the rest of the game reachable.
 #
@@ -48,6 +49,16 @@ var _host: Control
 ## NavPanel.gd for why: the bottom row cost a band of the scarce vertical
 ## direction and could only hold four of the seven destinations.
 var _nav: NavPanel
+
+## THE ONE STORE, owned by the shell rather than by the screen that shows it.
+##
+## It has to outlive the screen: a purchase begun on the store screen is
+## delivered by StoreKit a second or two later — often after the player has
+## walked away — and a Store that was freed with the screen would drop the
+## grant for something they have already paid for. It is also the thing that
+## polls for transactions the app never finished, which is how a purchase lost
+## to a crash comes back on the next launch.
+var _store: Store
 var _screen: UiScreen = null
 var _route: String = UiRoute.TITLE
 
@@ -157,6 +168,18 @@ func _build_chrome() -> void:
 	_bar.bind_wallet(roster.wallet)
 	column.add_child(_bar)
 
+	# Started here, once, at the top of the session: asking StoreKit for
+	# prices takes a round trip, so a store opened for the first time with no
+	# prices yet would show nine correctly-disabled rows and look broken.
+	_store = Store.for_account(roster)
+	add_child(_store)
+	_store.begin()
+	# A GRANT MUST SURVIVE THE SCREEN BEING GONE. Connected on the shell, not
+	# on StoreScreen, so currency bought and delivered late still lands and
+	# the bar still redraws.
+	_store.purchase_granted.connect(func(_pid: String, _txn: String) -> void:
+		_bar.refresh())
+
 	# NAVIGATION BESIDE THE SCREEN, not under it. In landscape, height is the
 	# scarce direction and width is not, so the chrome that is always present
 	# belongs down the side.
@@ -236,6 +259,12 @@ func _go(route: String, arg: Variant = null) -> void:
 		return
 	_screen.roster = roster
 	_screen.hero = selected_hero
+	# The store screen is handed the shell's Store rather than making one. A
+	# second Store would mean two things polling the same transaction queue,
+	# and whichever drained it first would grant while the other reported
+	# nothing — see StoreScreen.gd.
+	if _screen is StoreScreen:
+		(_screen as StoreScreen).store = _store
 	_screen.navigate.connect(_go)
 	_screen.state_changed.connect(_on_state_changed)
 	_screen.notified.connect(toast)
@@ -285,6 +314,7 @@ func _make_screen(route: String) -> UiScreen:
 		UiRoute.TRAINING: return TrainingScreen.new()
 		UiRoute.QUESTS: return QuestScreen.new()
 		UiRoute.PARTY: return PartyScreen.new()
+		UiRoute.STORE: return StoreScreen.new()
 	push_error("UiShell: no screen for route '%s'" % route)
 	return null
 
