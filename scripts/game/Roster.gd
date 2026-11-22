@@ -57,6 +57,28 @@ var crystals_since_epic: int = 0
 ## Deterministic stream for crystal rolls. Stored so a reload cannot re-roll a
 ## crystal the player already opened.
 var crystal_seed: int = 0
+
+## FURTHEST REACHED IN EACH NON-CAMPAIGN MODE, keyed by
+## GameMode.record_key(). A descent ends in death, so a record that was only
+## written on a clean exit would record nothing at all — Play banks this
+## every wave. Kept in the save rather than on the object as metadata,
+## because metadata on a RefCounted is not serialised and the score would
+## quietly vanish on restart.
+var mode_records: Dictionary = {}
+
+
+## Best depth/crown reached in a mode, 0 if never played.
+func best_in_mode(key: String) -> int:
+	return int(mode_records.get(key, 0))
+
+
+## Record a run if it beat the previous best. Returns true when it did, so a
+## caller can say "new best" without asking twice.
+func note_mode_run(key: String, reached: int) -> bool:
+	if key.is_empty() or reached <= best_in_mode(key):
+		return false
+	mode_records[key] = reached
+	return true
 var crystals_opened: int = 0
 
 ## StoreKit transaction ids that have already paid out, oldest first. THE
@@ -477,6 +499,7 @@ func to_dict() -> Dictionary:
 		"owned": heroes,
 		"tier": unlocked_tier,
 		"crystal_seed": crystal_seed,
+		"mode_records": mode_records,
 		"crystals_opened": crystals_opened,
 		"since_epic": crystals_since_epic,
 		"iap_txns": redeemed_txns,
@@ -521,6 +544,12 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 	r.stash = Stash.from_dict(d.get("stash", {}))
 	r.unlocked_tier = clampi(int(d.get("tier", 0)), 0, Campaign.max_tier())
 	r.crystal_seed = int(d.get("crystal_seed", 20261119))
+	# Copied key by key: JSON hands back an untyped Dictionary with string
+	# keys and float values, and assigning it wholesale would store depths
+	# as floats that then render as "Depth 7.0".
+	var recs: Dictionary = d.get("mode_records", {})
+	for k in recs.keys():
+		r.mode_records[String(k)] = int(recs[k])
 	r.crystals_opened = int(d.get("crystals_opened", 0))
 	r.crystals_since_epic = int(d.get("since_epic", 0))
 	# JSON gives these back as an untyped Array of Variants, so they are copied

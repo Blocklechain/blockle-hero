@@ -5,6 +5,7 @@ extends Node3D
 # headless harness that loads this scene would fail to PARSE until someone
 # opened the project. A preload resolves by path and has no such dependency.
 const MapShape := preload("res://scripts/game/MapShape.gd")
+const GameMode := preload("res://scripts/game/GameMode.gd")
 # ------------------------------------------------------------------------------
 # The playable slice: generate a region on the background thread, drop a hero in
 # it, and let the player fight in it.
@@ -85,6 +86,19 @@ var roster: Roster = null
 ## ARENA when it exists. Settable from outside before the scene is added, the
 ## same way `biome` and `hero` are.
 var layout_kind: int = Terrain.Kind.LANE
+
+## WHICH KIND OF RUN THIS IS. Campaign unless a launcher says otherwise, so
+## every existing caller keeps the behaviour it had. See GameMode.gd.
+@export var mode: int = GameMode.Id.CAMPAIGN
+
+## Which wave of a multi-wave mode is on the field. Always 0 in the campaign.
+var _wave: int = 0
+## Kept so later waves can be placed without rebuilding the world — a descent
+## that regenerated its arena between waves would be a loading screen with
+## combat in it.
+var _terrain: Terrain = null
+var _plan: Layout = null
+var _player_hero: String = ""
 
 var _builder: WorldBuilder
 var _cam: ArpgCamera
@@ -279,7 +293,10 @@ func _on_world_ready(root: Node3D, ter: Terrain, plan: Layout) -> void:
 		"items": _account.stash.items.size(),
 		"level": _hero.body.level if _hero.body != null else 1,
 	}
-	_populate(ter, plan, at, pick)
+	_terrain = ter
+	_plan = plan
+	_player_hero = pick
+	_populate(ter, plan, at, pick, 0)
 
 	var rigged: String = "rigged" if _hero.rig.is_rigged else "STATIC (procedural stand-in)"
 	print("hero '%s': %s" % [pick, rigged])
@@ -487,13 +504,34 @@ var _flying: bool = false
 ## packs and its boss and then loaded an empty region. A test that exercises a
 ## generator proves the generator works, not that the game uses it.
 func _populate(ter: Terrain, plan: Layout, player_at: Vector2,
-		player_hero: String) -> void:
+		player_hero: String, wave: int) -> void:
 	var playable: PackedStringArray = HeroRig.animated_heroes()
 	if playable.is_empty():
 		return
 	var pathing := Pathing.new(ter)
-	var spawns: Array = Encounter.build(region_index, tier, campaign_seed,
-		playable, player_hero, pathing, player_at, plan)
+
+	# WHICH DIFFICULTY THIS WAVE BORROWS. Rather than a second balance curve,
+	# a mode reuses the campaign's — enemy level, health, damage, elite rate
+	# and loot odds all come free and stay consistent with what the player
+	# already understands. See GameMode.scaling_index().
+	var idx: int = GameMode.scaling_index(mode, wave) if mode != GameMode.Id.CAMPAIGN \
+		else region_index
+	var over: float = GameMode.overdrive(mode, wave)
+	# A later wave must not be the same pack in the same spots: the seed moves
+	# with the wave, so depth 7 is a different fight from depth 6.
+	var seed_for_wave: int = campaign_seed + wave * 7919
+
+	var spawns: Array = Encounter.build(idx, tier, seed_for_wave,
+		playable, player_hero, pathing, player_at,
+		null if mode != GameMode.Id.CAMPAIGN else plan)
+	if GameMode.boss_only(mode, wave):
+		# A gauntlet is bosses and nothing else. Filtering rather than asking
+		# Encounter for a special case keeps one placement path under test.
+		var only: Array = []
+		for s2 in spawns:
+			if (s2 as Encounter.Spawn) != null and (s2 as Encounter.Spawn).is_boss:
+				only.append(s2)
+		spawns = only
 
 	var made: int = 0
 	for s in spawns:
@@ -510,8 +548,15 @@ func _populate(ter: Terrain, plan: Layout, player_at: Vector2,
 		# Bosses and elites read as dangerous by being BIGGER. It is the one
 		# cue that survives a small screen with a thumb over half of it.
 		foe.scale = Vector3.ONE * spawn.size
-		foe.setup_combat(Encounter.body_for(spawn, tier),
-			spawn.cls, spawn.hero)
+		var body: Combatant = Encounter.body_for(spawn, tier)
+		# PAST THE END OF THE CAMPAIGN'S CURVE. A descent cannot stop getting
+		# harder just because there are no deeper maps to borrow from; an
+		# endless mode that plateaus ends in boredom rather than in death.
+		if over > 1.0:
+			body.max_health *= over
+			body.health = body.max_health
+			body.weapon_power *= over
+		foe.setup_combat(body, spawn.cls, spawn.hero)
 		foe.cast_landed.connect(_on_enemy_cast.bind(foe))
 		var id: int = add_enemy(foe.body, foe)
 		if spawn.is_boss:
@@ -531,7 +576,8 @@ func _populate(ter: Terrain, plan: Layout, player_at: Vector2,
 		foe.set_meta("trait", trait_id)
 		made += 1
 
-	print("region %d tier %d: %d enemies" % [region_index, tier, made])
+	print("region %d tier %d wave %d: %d enemies (x%.2f)"
+		% [idx, tier, wave, made, over])
 	if made == 0:
 		# Loud, because an empty map is the exact failure this function exists
 		# to end and it is invisible from inside the game.
@@ -910,6 +956,15 @@ func _award_xp() -> void:
 ## the save would still say they had cleared none, because the only thing that
 ## could have said otherwise was never asked.
 func _clear_region() -> void:
+	# A MULTI-WAVE MODE IS NOT OVER. The campaign ends when its boss falls;
+	# a descent or a gauntlet treats that as one wave down and sends the
+	# next, in the same arena, without a loading screen.
+	if mode != GameMode.Id.CAMPAIGN and not GameMode.is_final_wave(mode, _wave):
+		_next_wave()
+		return
+	if mode != GameMode.Id.CAMPAIGN:
+		_finish_run()
+		return
 	var crystals: int = _account.record_map_cleared(tier, region_index)
 	_account.save()
 
@@ -934,6 +989,69 @@ func _clear_region() -> void:
 	}
 	_hud.set_message("%s has fallen." % Campaign.region_title(region_index))
 	region_cleared.emit(summary)
+
+
+## Send the next wave into the arena that is already standing.
+func _next_wave() -> void:
+	if _terrain == null or _hero == null:
+		return
+	_wave += 1
+	_boss_id = -1
+	# A new wave is a new set of packs. Without this, pack ids from the last
+	# wave stay marked awake and the newcomers all charge from the moment
+	# they appear.
+	_awake.clear()
+	_slam_at = Vector2.INF
+	_slam_cd = 0.0
+
+	var here: Vector2 = _hero.ground_position()
+	_populate(_terrain, _plan, here, _player_hero, _wave)
+	_hud.set_message("%s" % GameMode.wave_label(mode, _wave))
+	# Banked every wave, not at the end: a descent ends in death, and a run
+	# whose record is only written on a clean exit records nothing.
+	_bank_record()
+
+
+## The run is over, win or lose. Report it the same way a cleared map does so
+## the clear screen needs no mode-specific branch.
+func _finish_run() -> void:
+	_bank_record()
+	_account.save()
+	var summary: Dictionary = {
+		"region": region_index,
+		"tier": tier,
+		"mode": mode,
+		"mode_name": GameMode.name_of(mode),
+		"wave": _wave + 1,
+		"hero": _hero.rig.hero_name if _hero != null and _hero.rig != null
+			else hero,
+		"kills": _kills,
+		"gold": _account.wallet.balance(Wallet.Kind.GOLD)
+			- int(_snapshot.get("gold", 0)),
+		"items": _account.stash.items.size()
+			- int(_snapshot.get("items", 0)),
+		"levels": (_hero.body.level if _hero != null and _hero.body != null
+			else 1) - int(_snapshot.get("level", 1)),
+		"crystals": 0,
+		"cleared": _wave + 1,
+		"total": GameMode.wave_count(mode),
+		# Nothing to advance to: a mode run is its own thing.
+		"next": -1,
+	}
+	_hud.set_message("%s complete." % GameMode.name_of(mode))
+	region_cleared.emit(summary)
+
+
+## Record how far this run got, if it is the furthest yet.
+func _bank_record() -> void:
+	var key: String = GameMode.record_key(mode)
+	if key.is_empty() or _account == null:
+		return
+	# Through Roster so it lands in the SAVE. Metadata on a RefCounted is not
+	# serialised, so a record kept there would be lost on the next launch —
+	# which for a mode whose only reward is the number is the whole feature.
+	if _account.note_mode_run(key, _wave + 1):
+		_account.save()
 
 
 func _enemy_index(id: int) -> int:

@@ -1,5 +1,10 @@
 class_name UiShell
 extends Node
+
+# Preloaded by path: a new class_name is absent from Godot's global class
+# cache until the editor reimports, and the headless UI harnesses load this
+# script directly.
+const GameMode := preload("res://scripts/game/GameMode.gd")
 # ------------------------------------------------------------------------------
 # THE MENU SHELL: the thing that makes the rest of the game reachable.
 #
@@ -324,7 +329,17 @@ func _launch(arg: Variant) -> void:
 	# that happens to be on screen is not a rule.
 	var want_tier: int = clampi(int(spec.get("tier", Campaign.Tier.NORMAL)),
 		0, Campaign.tier_count() - 1)
-	if not roster.is_map_unlocked(want_tier, region):
+	# WHICH KIND OF RUN. Campaign unless asked otherwise, so every existing
+	# caller — the campaign screen, the clear screen's "next stage" — keeps
+	# the behaviour it had.
+	var want_mode: int = clampi(int(spec.get("mode", GameMode.Id.CAMPAIGN)),
+		0, GameMode.all().size() - 1)
+	# The map gate is a CAMPAIGN rule: region N is sealed until N-1 is
+	# cleared. A descent or a gauntlet is not a region and has no next one,
+	# so gating it on campaign progress would lock a player out of the modes
+	# for no reason the game ever explains.
+	if want_mode == GameMode.Id.CAMPAIGN \
+			and not roster.is_map_unlocked(want_tier, region):
 		toast("Region %d is sealed until you clear region %d."
 			% [region + 1, region])
 		return
@@ -360,6 +375,7 @@ func _launch(arg: Variant) -> void:
 	# screen puts it there. It was simply never read, so every difficulty the
 	# player picked was played on Normal.
 	_play.set("tier", want_tier)
+	_play.set("mode", want_mode)
 	var prog: HeroProgress = roster.progress(who)
 	if prog != null:
 		_play.set("champion_level", prog.level)

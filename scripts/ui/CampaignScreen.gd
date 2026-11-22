@@ -1,5 +1,9 @@
 class_name CampaignScreen
 extends UiScreen
+
+# Preloaded by path — see UiShell.gd for why class_name is not enough
+# for a script the headless harnesses load directly.
+const GameMode := preload("res://scripts/game/GameMode.gd")
 # ------------------------------------------------------------------------------
 # Where to go, and how hard it will be.
 #
@@ -87,6 +91,11 @@ func build() -> void:
 	_tier_note.clip_text = true
 	_tier_note.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	col.add_child(_tier_note)
+
+	# THE OTHER WAYS TO PLAY, above the map list rather than behind a menu.
+	# A mode nobody can find is a mode nobody plays, and this screen is
+	# already the place a player comes to start a run.
+	col.add_child(_mode_strip())
 
 	_list = VirtualList.new()
 	_list.configure(_make_row, _bind_row, 170)
@@ -220,4 +229,32 @@ func _on_enter() -> void:
 			% [_region + 1, _region, Campaign.tier_name(_tier)])
 		return
 	navigate.emit(UiRoute.LAUNCH, {"hero": hero, "region": _region,
-		"tier": _tier})
+		"tier": _tier, "mode": GameMode.Id.CAMPAIGN})
+
+
+## One button per non-campaign mode, each showing the player's best run so
+## the number is the reason to tap it.
+func _mode_strip() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	for id in GameMode.all():
+		if id == GameMode.Id.CAMPAIGN:
+			continue
+		var best: int = 0
+		if roster != null:
+			best = roster.best_in_mode(GameMode.record_key(id))
+		var label: String = GameMode.name_of(id)
+		if best > 0:
+			label += "  ·  best %d" % best
+		var b: Button = HeroTheme.button(label, HeroTheme.Btn.GHOST,
+			HeroTheme.TAP)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.tooltip_text = GameMode.blurb_of(id)
+		# Region 0 and the chosen tier: a mode is not a map, so it is not
+		# gated on campaign progress — UiShell skips the seal check for
+		# anything that is not the campaign.
+		b.pressed.connect(func():
+			navigate.emit(UiRoute.LAUNCH, {"hero": hero, "region": 0,
+				"tier": _tier, "mode": id}))
+		row.add_child(b)
+	return row
