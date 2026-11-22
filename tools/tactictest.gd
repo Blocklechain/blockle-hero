@@ -145,9 +145,23 @@ func _go() -> void:
 	# survival, which is measured elsewhere — so it is topped up rather than
 	# left to luck, and asserted afterwards so this cannot silently become
 	# vacuous.
+	# GIVEN A POOL NOTHING CAN CHEW THROUGH, rather than healed every frame.
+	#
+	# The frame-by-frame top-up was still not enough and CI still killed
+	# them: once Combatant.alive latches false, assigning health does not
+	# resurrect anything, and a champion can be taken from full to zero
+	# inside a single frame by a pack of six. Raising max_health means there
+	# is no frame in which they can reach zero at all, so the latch never
+	# flips and there is nothing to undo.
+	if me.body != null:
+		me.body.max_health = 1_000_000.0
+		me.body.health = me.body.max_health
 	for i in range(240):
-		if me.body != null:
-			me.body.health = me.body.max_health
+		if me.body != null and not me.body.alive:
+			# Belt and braces: if something kills them anyway, say so by
+			# failing the assertion below rather than by silently measuring
+			# a frozen archer.
+			break
 		await process_frame
 	check("the champion survived to watch it", me.body != null
 		and me.body.alive and not me.is_dead())
