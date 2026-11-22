@@ -29,6 +29,28 @@ extends Control
 # It remembers its state for the session but is not saved: which way a panel
 # was left is not account data, and writing it to roster.json would mean a
 # UI preference riding in the same file as the player's progress.
+#
+# ------------------------------------------------------------------------------
+# IT SCROLLS, AND IT HAS TO.
+#
+# Ten destinations at a 132 px row is 1,452 px of rows. The glass is 1,170 px
+# tall and the currency bar takes a row of that, so roughly seven fit and the
+# rest were simply CLIPPED — the panel sets clip_contents, so Training, Store
+# and Title were in the list, built, connected, and invisible. Nothing errored
+# and nothing looked broken; three destinations just did not exist.
+#
+# The rows cannot be made shorter to fit. 132 px is 44 pt at this device
+# scale, which is the smallest a touch target is allowed to be, and a
+# navigation panel is the last place to go under it. So the rows scroll.
+#
+# THE TOGGLE STAYS PINNED outside the scroll: it is the control that makes
+# the labels appear, and a player who has scrolled to the bottom must not
+# have to scroll back up to find out what the icons mean.
+#
+# TouchScroll is required rather than optional — every row is a Button, and a
+# Button consumes the whole gesture, so Godot's own touch dragging never sees
+# it. See TouchScroll.gd; on a desktop the wheel works and this looks fine,
+# which is how a dead list survives a screenshot pass.
 # ------------------------------------------------------------------------------
 
 ## The player picked a destination.
@@ -92,20 +114,39 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
-	var col := VBoxContainer.new()
-	col.set_anchors_preset(Control.PRESET_FULL_RECT)
-	col.add_theme_constant_override("separation", 8)
-	add_child(col)
+	# A fixed top (the toggle) and a scrolling remainder (the destinations).
+	var frame := VBoxContainer.new()
+	frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+	frame.add_theme_constant_override("separation", 8)
+	add_child(frame)
 
 	# THE TOGGLE IS THE FIRST THING, at the top where a hamburger is expected
 	# — and it is a destination-shaped row like the others so the rail reads
-	# as one column rather than a button with a list under it.
+	# as one column rather than a button with a list under it. It is OUTSIDE
+	# the scroll: it is what makes the labels appear, so it must not be the
+	# thing you have to scroll back up to reach.
 	var toggle: Button = _row("", "Menu", UiGlyph.Kind.MENU)
 	toggle.name = "NavToggle"
 	toggle.pressed.connect(func() -> void: set_open(not _open))
-	col.add_child(toggle)
+	frame.add_child(toggle)
 
-	col.add_child(HeroTheme.rule())
+	frame.add_child(HeroTheme.rule())
+
+	var sc := ScrollContainer.new()
+	sc.name = "NavScroll"
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Without this the drag dies on whichever row the finger landed on and the
+	# panel never moves. Not optional — see the header.
+	TouchScroll.attach(sc)
+	frame.add_child(sc)
+
+	var col := VBoxContainer.new()
+	col.name = "NavRows"
+	col.add_theme_constant_override("separation", 8)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(col)
 
 	for item in ITEMS:
 		var route: String = String(item[0])

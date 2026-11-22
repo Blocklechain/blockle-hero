@@ -54,8 +54,33 @@ func check(label: String, ok: bool, detail: String = "") -> void:
 	print("  %s %-50s %s" % ["PASS" if ok else "FAIL", label, detail])
 
 
+## Seconds this harness is allowed to take. A SceneTree script whose _go()
+## aborts on a runtime error never reaches quit(), so it runs until CI kills
+## it — which reports a timeout with no failures and no clue. This fails it
+## instead, loudly, with the route it died on.
+const WATCHDOG: float = 240.0
+
+var _route_now: String = "(startup)"
+
+
 func _init() -> void:
 	_go.call_deferred()
+	_watch.call_deferred()
+
+
+## Fail rather than hang. Deliberately generous: this harness boots the real
+## scene four times and drives real gestures through it.
+func _watch() -> void:
+	var t := Timer.new()
+	t.wait_time = WATCHDOG
+	t.one_shot = true
+	t.timeout.connect(func() -> void:
+		check("the harness finished rather than hanging", false,
+			"still on '%s' after %ds" % [_route_now, int(WATCHDOG)])
+		print("\n=== %d failure(s) ===" % fails)
+		quit(1))
+	get_root().add_child(t)
+	t.start()
 
 
 func _go() -> void:
@@ -79,6 +104,7 @@ func _go() -> void:
 		shell.goto(route)
 		for i in range(8):
 			await process_frame
+		_route_now = String(route)
 		print("\n=== %s ===" % route)
 		# EVERY visible ScrollContainer, not only the VirtualLists. The first
 		# version of this looked for VirtualList and so reported nothing at
@@ -88,7 +114,25 @@ func _go() -> void:
 		# either.
 		var seen: int = 0
 		for sc in main.find_children("*", "ScrollContainer", true, false):
-			if not sc.is_visible_in_tree():
+			# THE SNAPSHOT GOES STALE. _one() awaits frames, and anything that
+			# happens in between can free a later entry — at which point
+			# is_visible_in_tree() on it is a call into a freed object, the
+			# error aborts _go(), and a SceneTree script that never reaches
+			# quit() runs until CI kills it. That is how this turned into a
+			# 900-second timeout reporting zero failures.
+			if not is_instance_valid(sc):
+				continue
+			if not (sc as Node).is_inside_tree() or not sc.is_visible_in_tree():
+				continue
+			# THE NAVIGATION PANEL IS NOT THIS HARNESS'S SUBJECT.
+			#
+			# It is chrome: present on every screen, so it would be driven
+			# four times, and driving it NAVIGATES — a drag that is read as a
+			# press opens another screen and frees the one being measured out
+			# from under this loop. Its own scrolling is asserted in
+			# tools/navtest.gd, against the real row count and the real
+			# screen height.
+			if String(sc.name) == "NavScroll":
 				continue
 			seen += 1
 			await _one(sc)
@@ -110,10 +154,19 @@ func _one(list: ScrollContainer) -> void:
 		var step: int = vl.row_height + VirtualList.SPACING
 		need = float(vl.count()) * float(step) - float(VirtualList.SPACING)
 		have = vl.get_child(0).get_combined_minimum_size().y
-		check("the scroll range reaches the last row",
-			have >= need - 1.0,
-			"range %.0f, rows end at %.0f (%d x %d)" % [have, need,
-				vl.count(), step])
+		# AN EMPTY LIST PROVES NOTHING. With count() at zero the needed
+		# extent is NEGATIVE, so "the range reaches the last row" is
+		# 0 >= -13 — true, and true for a list that has no rows at all.
+		# Whether a list has content depends on the save this harness
+		# happened to boot, so it is reported rather than silently passed.
+		if vl.count() <= 0:
+			print("       SKIP  the list is empty on this save, "
+				+ "so its extent is not worth asserting")
+		else:
+			check("the scroll range reaches the last row",
+				have >= need - 1.0,
+				"range %.0f, rows end at %.0f (%d x %d)" % [have, need,
+					vl.count(), step])
 	else:
 		for c in list.get_children():
 			if c is Control:

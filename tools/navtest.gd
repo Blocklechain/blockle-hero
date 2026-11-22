@@ -34,10 +34,22 @@ func check(label: String, ok: bool, note: String = "") -> void:
 
 
 func _init() -> void:
-	var design := Vector2i(2532, 1170)
+	# THE PROJECT'S OWN VIEWPORT, read rather than typed.
+	#
+	# A hardcoded size here measured a panel 2160 px tall — nearly twice the
+	# real screen — so the overflow this harness exists to catch did not
+	# happen and the reachability assertions were being made against a
+	# geometry no device has. The aspect mode matters too: "expand" is what
+	# the project ships, and it is what decides how much height the panel
+	# actually gets.
+	var design := Vector2i(
+		ProjectSettings.get_setting("display/window/size/viewport_width"),
+		ProjectSettings.get_setting("display/window/size/viewport_height"))
 	get_root().content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	get_root().content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
 	get_root().content_scale_size = design
 	get_root().size = design
+	await process_frame
 	await process_frame
 
 	await _destinations(); _ran += 1
@@ -140,6 +152,33 @@ func _destinations() -> void:
 	check("every destination has a row that can be pressed",
 		found == NavPanelS.ITEMS.size(),
 		"%d of %d" % [found, NavPanelS.ITEMS.size()])
+
+	# ------------------------------------------------------------------------
+	# AND EVERY ROW HAS TO BE REACHABLE, which is not the same question.
+	#
+	# Ten rows at a 132 px touch target is 1,452 px of rows in a 1,170 px
+	# screen that also carries a currency bar. The panel sets clip_contents,
+	# so Training, Store and Title were built, connected, listed — and
+	# CLIPPED. Every assertion above passed. Nothing errored. Three
+	# destinations simply did not exist, and the only way to find out was to
+	# look at the device and count.
+	#
+	# The rows cannot be made shorter: 132 px is 44 pt here, the smallest a
+	# touch target may be. So they scroll, and this is the check that the
+	# scrolling actually reaches the end of them.
+	# ------------------------------------------------------------------------
+	# The rows live in a scroll container with finger scrolling attached.
+	# WHETHER IT REACHES THEM is asserted in _in_the_shell(), where the panel
+	# has a real height — a bare NavPanel added to the root is laid out by
+	# nothing, so its scroll is zero pixels tall and any reachability claim
+	# measured here would be measuring nothing.
+	var sc := nav.find_child("NavScroll", true, false) as ScrollContainer
+	var rows := nav.find_child("NavRows", true, false) as Control
+	check("the rows are in a scroll container", sc != null)
+	check("...which holds them", rows != null and sc != null
+		and rows.get_parent() == sc)
+	check("...with finger scrolling attached, because every row is a Button",
+		sc != null and sc.find_child("TouchScroll", true, false) != null)
 
 	main.queue_free()
 	nav.queue_free()
@@ -311,6 +350,88 @@ func _in_the_shell() -> void:
 	check("every row opens its screen through the shell",
 		worked == NavPanelS.ITEMS.size(),
 		"%d of %d" % [worked, NavPanelS.ITEMS.size()])
+
+	# ------------------------------------------------------------------------
+	# EVERY ROW HAS TO BE REACHABLE, which is not the same question as
+	# "every row exists" — and the difference is what shipped.
+	#
+	# Ten rows at a 132 px touch target is 1,392 px of rows. The glass is
+	# 1,170 px tall and the currency bar takes a row of it, so about seven
+	# fit and the rest were CLIPPED: the panel sets clip_contents, so
+	# Training, Store and Title were built, connected, listed by every
+	# assertion above — and invisible. Nothing errored. Three destinations
+	# simply did not exist, and the only way to find out was to look at a
+	# device and count.
+	#
+	# The rows cannot be shortened: 132 px is 44 pt at this device scale,
+	# which is the floor for a touch target. So they scroll, and this is the
+	# check that the scrolling reaches the end.
+	# ------------------------------------------------------------------------
+	var sc := nav.find_child("NavScroll", true, false) as ScrollContainer
+	var rows := nav.find_child("NavRows", true, false) as Control
+	check("the panel has a scroll and rows in the live shell",
+		sc != null and rows != null)
+	if sc == null or rows == null:
+		main.queue_free()
+		return
+
+	# ---- DOES IT OVERFLOW ON THE DEVICE? ------------------------------------
+	#
+	# Measured against the PROJECT'S configured viewport, not against this
+	# harness's window. A headless root does not honour a size assignment, so
+	# the panel measures around 2,160 px here — nearly twice the real screen
+	# — and an overflow assertion made against that is a claim about a
+	# geometry no device has. The shipping viewport is the only height worth
+	# asserting about.
+	var need: float = rows.get_combined_minimum_size().y
+	var screen_h: float = float(ProjectSettings.get_setting(
+		"display/window/size/viewport_height"))
+	# What the panel actually gets: the glass, less the safe-area margins the
+	# shell applies top and bottom, less the currency bar and the gap under
+	# it, less the toggle row and its rule which sit outside the scroll.
+	var chrome: float = HeroTheme.SAFE_Y * 2 + HeroTheme.GAP * 3 \
+		+ HeroTheme.TAP * 2 + 8.0
+	var avail: float = screen_h - chrome
+	check("the rows do not fit on the real screen, so scrolling is required",
+		need > avail,
+		"%.0f px of rows, about %.0f px of room at %.0f px tall"
+			% [need, avail, screen_h])
+	check("...and every row is still a legal touch target",
+		HeroTheme.TAP >= 132, "%d px = %d pt" % [HeroTheme.TAP,
+			HeroTheme.TAP / 3])
+
+	# ---- AND CAN THE SCROLL REACH THE END? ----------------------------------
+	# Asserted at whatever height this harness gives the panel, which is the
+	# honest thing a runtime check can say: if the rows overflow here the
+	# scroll must cover it, and if they fit here they are already on screen.
+	var vbar: VScrollBar = sc.get_v_scroll_bar()
+	var reach: float = maxf(vbar.max_value - vbar.page, 0.0)
+	var overflow: float = maxf(need - sc.size.y, 0.0)
+	check("the scroll covers whatever does not fit",
+		reach >= overflow - 2.0,
+		"reaches %.0f px, overflow %.0f px" % [reach, overflow])
+
+	# THE LAST ROW, SPECIFICALLY. "The scrollbar has a range" is not the same
+	# claim as "the tenth destination can be tapped".
+	sc.scroll_vertical = int(reach)
+	for i in range(4):
+		await process_frame
+	var tail: String = String(NavPanelS.ITEMS[NavPanelS.ITEMS.size() - 1][0])
+	var last: Button = _row_of(nav, tail)
+	check("the LAST destination can be brought into view", last != null
+		and sc.get_global_rect().intersects(last.get_global_rect()),
+		"%s at %s" % [tail, last.get_global_rect() if last != null else "?"])
+
+	# AND THE ONE THE REPORT WAS ABOUT. Training is eighth of ten — past the
+	# fold on the real screen, so it was listed, built, connected, and not
+	# on the glass.
+	var training: Button = _row_of(nav, UiRoute.TRAINING)
+	check("...and so can Training, which was the one that went missing",
+		training != null
+			and sc.get_global_rect().intersects(training.get_global_rect()),
+		"%s" % (training.get_global_rect() if training != null else "?"))
+	sc.scroll_vertical = 0
+	await process_frame
 
 	# WHERE YOU ARE, not only where you can go. The sheet is pushed on top of
 	# the champion list, so the list's row stays lit rather than leaving the
