@@ -15,6 +15,7 @@ const SHEET: String = "sheet"
 const STASH: String = "stash"
 const SHOP: String = "shop"
 const CAMPAIGN: String = "campaign"
+const TRAINING: String = "training"
 
 ## Not a screen: leave the menus and start playing. `arg` is the region index.
 const LAUNCH: String = "launch"

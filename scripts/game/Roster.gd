@@ -1,5 +1,9 @@
 class_name Roster
 extends RefCounted
+
+# Preloaded by path: a new class_name is absent from Godot's global cache
+# until the editor reimports, and the headless harnesses load this directly.
+const Training := preload("res://scripts/game/Training.gd")
 # ------------------------------------------------------------------------------
 # The player's account: which champions they own, each one's own progression,
 # the shared stash, the wallet, and campaign unlocks.
@@ -66,8 +70,116 @@ var crystal_seed: int = 0
 ## quietly vanish on restart.
 var mode_records: Dictionary = {}
 
+## TRAINING SLOTS — champions earning XP while the app is shut. See
+## Training.gd, and note the clock is treated as hostile there.
+var training_slots: Array = []
+## How many slots have been paid for. The first is free.
+var slots_unlocked: int = 1
+
 
 ## Best depth/crown reached in a mode, 0 if never played.
+## Make sure there is a Slot object for every possible slot, so callers can
+## index without checking. Unlocked-ness is a separate count, not a shorter
+## array — an array that changes length is a migration waiting to go wrong.
+func _ensure_slots() -> void:
+	while training_slots.size() < Training.SLOTS_MAX:
+		training_slots.append(Training.Slot.new())
+
+
+func _training_to_list() -> Array:
+	_ensure_slots()
+	var out: Array = []
+	for sl in training_slots:
+		out.append((sl as Training.Slot).to_dict())
+	return out
+
+
+## The slot at [index], or null if there is no such slot.
+func slot(index: int) -> Training.Slot:
+	_ensure_slots()
+	if index < 0 or index >= training_slots.size():
+		return null
+	return training_slots[index] as Training.Slot
+
+
+func slot_is_unlocked(index: int) -> bool:
+	return index >= 0 and index < slots_unlocked
+
+
+## Buy the next slot. Returns false when there is none left or the gold is
+## not there — the caller shows why, this only decides.
+func unlock_slot() -> bool:
+	if slots_unlocked >= Training.SLOTS_MAX:
+		return false
+	var cost: int = Training.cost_of(slots_unlocked)
+	if cost > 0 and not wallet.spend(Wallet.Kind.GOLD, cost, "training slot"):
+		return false
+	slots_unlocked += 1
+	_ensure_slots()
+	return true
+
+
+## Put a champion in a slot. Starting the clock is the whole operation.
+func begin_training(index: int, who: String, now: int) -> bool:
+	if not slot_is_unlocked(index) or not owns(who):
+		return false
+	# ONE SLOT PER CHAMPION. Two slots training the same hero would stack
+	# their rates, which is a cap that is not a cap.
+	for i in range(slots_unlocked):
+		var other: Training.Slot = slot(i)
+		if i != index and other != null and other.hero == who:
+			return false
+	var sl: Training.Slot = slot(index)
+	if sl == null:
+		return false
+	sl.hero = who
+	sl.since = now
+	sl.high_water = now
+	return true
+
+
+## Bank what a slot has earned and restart its clock.
+##
+## Returns how much XP was granted. Claiming an empty or barely-started slot
+## is a no-op rather than an error: the UI calls this on open to refresh.
+func claim_training(index: int, now: int) -> float:
+	var sl: Training.Slot = slot(index)
+	if sl == null or sl.is_empty() or not slot_is_unlocked(index):
+		return 0.0
+	var res: Array = sl.elapsed_at(now)
+	if bool(res[1]):
+		# Clock went backwards — re-anchor and bank nothing. Crossing a
+		# timezone must not corrupt a save, and must not pay out either.
+		sl.since = now
+		return 0.0
+	sl.high_water = maxi(sl.high_water, now)
+
+	var p: HeroProgress = progress(sl.hero)
+	if p == null:
+		return 0.0
+	var gained: float = Training.xp_for(p, float(res[0]))
+	if gained < Training.MIN_CLAIM_XP:
+		return 0.0
+	p.gain_xp(gained)
+	# The clock restarts from NOW, so the time spent is spent — a claim does
+	# not roll the uncounted remainder forward into the next stretch, which
+	# would make a capped slot keep paying.
+	sl.since = now
+	return gained
+
+
+## What a slot would pay right now, without taking it.
+func pending_training(index: int, now: int) -> float:
+	var sl: Training.Slot = slot(index)
+	if sl == null or sl.is_empty() or not slot_is_unlocked(index):
+		return 0.0
+	var res: Array = sl.elapsed_at(now)
+	if bool(res[1]):
+		return 0.0
+	var p: HeroProgress = progress(sl.hero)
+	return Training.xp_for(p, float(res[0])) if p != null else 0.0
+
+
 func best_in_mode(key: String) -> int:
 	return int(mode_records.get(key, 0))
 
@@ -500,6 +612,8 @@ func to_dict() -> Dictionary:
 		"tier": unlocked_tier,
 		"crystal_seed": crystal_seed,
 		"mode_records": mode_records,
+		"slots_unlocked": slots_unlocked,
+		"training": _training_to_list(),
 		"crystals_opened": crystals_opened,
 		"since_epic": crystals_since_epic,
 		"iap_txns": redeemed_txns,
@@ -550,6 +664,13 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 	var recs: Dictionary = d.get("mode_records", {})
 	for k in recs.keys():
 		r.mode_records[String(k)] = int(recs[k])
+	r.slots_unlocked = clampi(int(d.get("slots_unlocked", 1)), 1,
+		Training.SLOTS_MAX)
+	for sl in d.get("training", []):
+		if sl is Dictionary:
+			r.training_slots.append(Training.Slot.from_dict(sl))
+	# A save from before training existed has none; the getter fills in.
+	r._ensure_slots()
 	r.crystals_opened = int(d.get("crystals_opened", 0))
 	r.crystals_since_epic = int(d.get("since_epic", 0))
 	# JSON gives these back as an untyped Array of Variants, so they are copied

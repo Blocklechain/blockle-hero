@@ -5,6 +5,7 @@ extends Node
 # cache until the editor reimports, and the headless UI harnesses load this
 # script directly.
 const GameMode := preload("res://scripts/game/GameMode.gd")
+const TrainingScreen := preload("res://scripts/ui/TrainingScreen.gd")
 # ------------------------------------------------------------------------------
 # THE MENU SHELL: the thing that makes the rest of the game reachable.
 #
@@ -271,6 +272,7 @@ func _make_screen(route: String) -> UiScreen:
 		UiRoute.STASH: return StashScreen.new()
 		UiRoute.SHOP: return ShopScreen.new()
 		UiRoute.CAMPAIGN: return CampaignScreen.new()
+		UiRoute.TRAINING: return TrainingScreen.new()
 	push_error("UiShell: no screen for route '%s'" % route)
 	return null
 

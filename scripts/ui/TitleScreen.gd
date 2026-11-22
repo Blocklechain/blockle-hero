@@ -100,6 +100,9 @@ func build() -> void:
 		_quick(quick, "Champions", UiRoute.CHAMPIONS, who)
 		_quick(quick, "Stash", UiRoute.STASH, who)
 		_quick(quick, "Merchant", UiRoute.SHOP, who)
+		# The bench. On the title screen because the whole point is to
+		# collect on the way past, not to go looking for it.
+		_quick(quick, "Training", UiRoute.TRAINING, who)
 
 	set_process(true)
 
