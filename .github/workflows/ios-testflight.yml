@@ -171,7 +171,8 @@ jobs:
                    dreadtest sticktest loadouttest movetest overflowtest \
                    spawntest vfxtest opentest scrolltest cleartest \
                    wiredtest gatetest respectest spectacletest titletest \
-                   tactictest safetest; do
+                   tactictest safetest \
+                   slamtest shapetest modetest dresstest; do
             echo "--- $t"
             "$GODOT" --headless --path . --script "tools/$t.gd"
           done
