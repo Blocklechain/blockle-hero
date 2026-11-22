@@ -31,6 +31,10 @@ const PROPS: PackedStringArray = [
 	"rock_small", "rock_large", "boulder", "stalagmite", "crystal",
 	"ice_shard", "lava_rock", "bone", "skull_pile",
 	"pillar", "ruin_wall", "statue", "brazier", "totem", "banner",
+	# Added later: the original set was heavy on vegetation and light on
+	# anything BUILT or anything that reads as a landmark across open ground.
+	"cairn", "standing_stone", "arch", "obelisk", "root_arch",
+	"fungus_shelf", "ash_cone", "shard_cluster",
 ]
 
 
@@ -74,7 +78,7 @@ const TABLE: Dictionary = {
 	"cover_density": 78,
 	"cover": {"grass_tuft": 50, "fern": 20, "flower": 13, "pebble": 9, "twig": 5, "mushroom": 3},
 	"props": {"tree_broad": 30, "tree_conifer": 14, "bush": 16, "grass_tuft": 20,
-		"flower": 8, "rock_small": 6, "stump": 3, "log": 3, "mushroom": 2},
+		"flower": 8, "rock_small": 6, "stump": 3, "log": 3, "mushroom": 2, "root_arch": 10, "cairn": 5},
 },
 
 "tidebreak": {
@@ -92,7 +96,7 @@ const TABLE: Dictionary = {
 	"cover_density": 34,
 	"cover": {"grass_tuft": 38, "pebble": 34, "reed": 14, "twig": 9, "flower": 5},
 	"props": {"grass_tuft": 26, "rock_large": 16, "rock_small": 14, "reed": 10,
-		"boulder": 8, "tree_dead": 5, "bush": 8, "ruin_wall": 3},
+		"boulder": 8, "tree_dead": 5, "bush": 8, "ruin_wall": 3, "standing_stone": 9, "cairn": 6},
 },
 
 "emberfall": {
@@ -110,7 +114,7 @@ const TABLE: Dictionary = {
 	"cover_density": 58,
 	"cover": {"grass_tuft": 26, "twig": 28, "fern": 16, "pebble": 16, "flower": 8, "mushroom": 6},
 	"props": {"tree_broad": 26, "tree_dead": 18, "grass_tuft": 14, "bush": 10,
-		"rock_small": 9, "log": 7, "stump": 6, "brazier": 2, "flower": 4},
+		"rock_small": 9, "log": 7, "stump": 6, "brazier": 2, "flower": 4, "ash_cone": 8, "cairn": 5},
 },
 
 "frostcrag": {
@@ -128,7 +132,7 @@ const TABLE: Dictionary = {
 	"cover_density": 20,
 	"cover": {"pebble": 54, "grass_tuft": 20, "twig": 16, "ice_shard": 10},
 	"props": {"ice_shard": 24, "rock_large": 20, "tree_conifer": 16,
-		"boulder": 14, "rock_small": 12, "tree_dead": 8, "crystal": 4, "bone": 2},
+		"boulder": 14, "rock_small": 12, "tree_dead": 8, "crystal": 4, "bone": 2, "standing_stone": 10, "shard_cluster": 8},
 },
 
 "mistmoor": {
@@ -146,7 +150,7 @@ const TABLE: Dictionary = {
 	"cover_density": 62,
 	"cover": {"grass_tuft": 42, "reed": 24, "fern": 12, "mushroom": 10, "pebble": 8, "twig": 4},
 	"props": {"reed": 30, "grass_tuft": 22, "tree_dead": 16, "bush": 10,
-		"rock_small": 8, "stump": 6, "mushroom": 5, "bone": 3},
+		"rock_small": 8, "stump": 6, "mushroom": 5, "bone": 3, "fungus_shelf": 11, "root_arch": 8},
 },
 
 "stormreach": {
@@ -164,7 +168,7 @@ const TABLE: Dictionary = {
 	"cover_density": 30,
 	"cover": {"grass_tuft": 36, "pebble": 38, "twig": 16, "fern": 10},
 	"props": {"rock_large": 22, "boulder": 18, "grass_tuft": 16, "tree_dead": 12,
-		"rock_small": 12, "pillar": 8, "totem": 5, "ruin_wall": 4},
+		"rock_small": 12, "pillar": 8, "totem": 5, "ruin_wall": 4, "standing_stone": 11, "obelisk": 6},
 },
 
 "duskvale": {
@@ -182,7 +186,7 @@ const TABLE: Dictionary = {
 	"cover_density": 42,
 	"cover": {"grass_tuft": 30, "flower": 20, "mushroom": 16, "fern": 14, "pebble": 14, "twig": 6},
 	"props": {"tree_dead": 22, "crystal": 14, "bush": 14, "grass_tuft": 16,
-		"rock_small": 10, "mushroom": 8, "pillar": 6, "brazier": 4, "flower": 6},
+		"rock_small": 10, "mushroom": 8, "pillar": 6, "brazier": 4, "flower": 6, "arch": 8, "cairn": 7},
 },
 
 "gloomroot": {
@@ -200,7 +204,7 @@ const TABLE: Dictionary = {
 	"cover_density": 80,
 	"cover": {"fern": 34, "mushroom": 26, "grass_tuft": 18, "twig": 12, "pebble": 10},
 	"props": {"tree_broad": 24, "tree_dead": 18, "mushroom": 18, "reed": 14,
-		"bush": 10, "log": 8, "stump": 6, "rock_small": 6, "bone": 3},
+		"bush": 10, "log": 8, "stump": 6, "rock_small": 6, "bone": 3, "root_arch": 12, "fungus_shelf": 9},
 },
 
 "thornspire": {
@@ -218,7 +222,7 @@ const TABLE: Dictionary = {
 	"cover_density": 34,
 	"cover": {"twig": 30, "pebble": 28, "grass_tuft": 18, "thorn": 14, "bone": 10},
 	"props": {"thorn": 32, "tree_dead": 18, "rock_large": 12, "bush": 10,
-		"rock_small": 10, "bone": 8, "boulder": 6, "skull_pile": 4},
+		"rock_small": 10, "bone": 8, "boulder": 6, "skull_pile": 4, "root_arch": 9, "obelisk": 6},
 },
 
 "ashwastes": {
@@ -236,7 +240,7 @@ const TABLE: Dictionary = {
 	"cover_density": 16,
 	"cover": {"pebble": 58, "twig": 26, "bone": 10, "grass_tuft": 6},
 	"props": {"rock_small": 26, "boulder": 20, "tree_dead": 16, "bone": 14,
-		"rock_large": 12, "skull_pile": 6, "ruin_wall": 4, "pillar": 2},
+		"rock_large": 12, "skull_pile": 6, "ruin_wall": 4, "pillar": 2, "ash_cone": 12, "cairn": 6},
 },
 
 "boneyard": {
@@ -254,7 +258,7 @@ const TABLE: Dictionary = {
 	"cover_density": 32,
 	"cover": {"pebble": 30, "bone": 24, "grass_tuft": 26, "twig": 14, "mushroom": 6},
 	"props": {"bone": 30, "skull_pile": 18, "tree_dead": 14, "rock_small": 12,
-		"grass_tuft": 10, "pillar": 8, "ruin_wall": 6, "statue": 2},
+		"grass_tuft": 10, "pillar": 8, "ruin_wall": 6, "statue": 2, "cairn": 10, "arch": 7},
 },
 
 "hollows": {
@@ -272,7 +276,7 @@ const TABLE: Dictionary = {
 	"cover_density": 34,
 	"cover": {"pebble": 44, "mushroom": 28, "crystal": 12, "twig": 10, "bone": 6},
 	"props": {"stalagmite": 30, "rock_large": 18, "crystal": 14, "mushroom": 12,
-		"rock_small": 10, "boulder": 8, "bone": 5, "brazier": 3},
+		"rock_small": 10, "boulder": 8, "bone": 5, "brazier": 3, "fungus_shelf": 9, "shard_cluster": 7},
 },
 
 "shimmer": {
@@ -290,7 +294,7 @@ const TABLE: Dictionary = {
 	"cover_density": 28,
 	"cover": {"pebble": 40, "crystal": 20, "grass_tuft": 22, "ice_shard": 12, "twig": 6},
 	"props": {"crystal": 34, "ice_shard": 20, "rock_large": 14, "rock_small": 12,
-		"boulder": 8, "pillar": 6, "grass_tuft": 6},
+		"boulder": 8, "pillar": 6, "grass_tuft": 6, "shard_cluster": 13, "obelisk": 7},
 },
 
 "molten": {
@@ -311,7 +315,7 @@ const TABLE: Dictionary = {
 	"cover_density": 22,
 	"cover": {"pebble": 52, "lava_rock": 20, "twig": 10, "bone": 10, "crystal": 8},
 	"props": {"lava_rock": 32, "rock_large": 20, "boulder": 14, "rock_small": 12,
-		"stalagmite": 8, "brazier": 6, "pillar": 4, "bone": 4},
+		"stalagmite": 8, "brazier": 6, "pillar": 4, "bone": 4, "ash_cone": 13, "shard_cluster": 7},
 },
 
 "voidrift": {
@@ -329,7 +333,7 @@ const TABLE: Dictionary = {
 	"cover_density": 26,
 	"cover": {"pebble": 42, "crystal": 22, "twig": 14, "bone": 12, "mushroom": 10},
 	"props": {"crystal": 26, "rock_large": 20, "stalagmite": 16, "boulder": 12,
-		"pillar": 10, "rock_small": 8, "totem": 5, "statue": 3},
+		"pillar": 10, "rock_small": 8, "totem": 5, "statue": 3, "obelisk": 11, "shard_cluster": 10},
 },
 
 "throne": {
@@ -347,7 +351,7 @@ const TABLE: Dictionary = {
 	"cover_density": 30,
 	"cover": {"pebble": 38, "grass_tuft": 28, "twig": 14, "flower": 12, "bone": 8},
 	"props": {"pillar": 30, "ruin_wall": 20, "statue": 14, "banner": 12,
-		"brazier": 10, "rock_small": 6, "grass_tuft": 5, "totem": 3},
+		"brazier": 10, "rock_small": 6, "grass_tuft": 5, "totem": 3, "arch": 12, "obelisk": 10},
 },
 }
 

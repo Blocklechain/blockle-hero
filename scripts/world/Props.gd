@@ -385,6 +385,107 @@ static func build(kind: String, biome_id: String, variant: int) -> ArrayMesh:
 			bd.quad(Vector3(0.04, 2.9, 0), Vector3(0.04, 2.9, 1.1),
 				Vector3(0.04, 1.4, 1.0), Vector3(0.04, 1.3, 0), accent)
 
+		# ---- added vocabulary ------------------------------------------
+		# Eight more shapes, built from the same drum/cone/lump helpers as
+		# everything above. The point is not novelty for its own sake: the
+		# old set was heavy on vegetation and light on anything BUILT or
+		# anything that reads as a landmark, so every biome's silhouette came
+		# from trees and rocks and the ruined ones had almost nothing of
+		# their own.
+
+		"cairn":
+			# A stack of shrinking stones. Reads as deliberate — someone
+			# was here — which is what a wilderness biome has none of.
+			var cn: int = 3 + int(Rng.unit1(sd, 1) * 3.0)
+			var cy: float = 0.0
+			for ci in range(cn):
+				var cr: float = 0.42 * (1.0 - float(ci) / float(cn + 1))
+				var ch: float = 0.20 + Rng.unit1(sd, ci + 2) * 0.14
+				bd.lump(Vector3(0, cy + ch * 0.5, 0), cr, sd + ci,
+					stone.lightened(0.03 * float(ci % 3)), 0.6, 0.22)
+				cy += ch
+
+		"standing_stone":
+			# A single leaning monolith. The lean is what stops a field of
+			# them looking like fence posts.
+			var sh: float = 2.4 + Rng.unit1(sd, 1) * 2.2
+			var tilt: float = (Rng.unit1(sd, 2) - 0.5) * 0.5
+			bd.drum(Vector3.ZERO, Vector3(tilt, sh, tilt * 0.6),
+				0.46, 0.30, 5, stone)
+			bd.lump(Vector3(tilt, sh, tilt * 0.6), 0.26, sd,
+				stone.lightened(0.05), 0.5, 0.3)
+
+		"arch":
+			# Two posts and a lintel: the smallest thing that reads as
+			# architecture rather than geology.
+			var aw: float = 1.3 + Rng.unit1(sd, 1) * 0.9
+			var ah: float = 2.2 + Rng.unit1(sd, 2) * 1.4
+			for side in [-1.0, 1.0]:
+				bd.drum(Vector3(aw * side, 0, 0), Vector3(aw * side, ah, 0),
+					0.30, 0.26, 8, stone)
+			bd.drum(Vector3(-aw - 0.2, ah, 0), Vector3(aw + 0.2, ah, 0),
+				0.26, 0.26, 6, stone.lightened(0.04))
+
+		"obelisk":
+			# Tall, four-sided, sharply tapered — a landmark visible across
+			# an open map, which a hollow badly needs.
+			var oh: float = 3.4 + Rng.unit1(sd, 1) * 2.6
+			bd.drum(Vector3.ZERO, Vector3(0, 0.3, 0), 0.6, 0.52, 4,
+				stone.darkened(0.1))
+			bd.drum(Vector3(0, 0.3, 0), Vector3(0, oh, 0), 0.44, 0.16, 4,
+				stone)
+			bd.cone(Vector3(0, oh, 0), 0.5, 0.16, 4, accent.darkened(0.2))
+
+		"root_arch":
+			# A root humped out of the ground and back in. Low, wide, and
+			# the only prop that is an obstacle without being a wall.
+			var rl: float = 1.4 + Rng.unit1(sd, 1) * 1.2
+			var rh: float = 0.5 + Rng.unit1(sd, 2) * 0.6
+			bd.drum(Vector3(-rl, 0, 0), Vector3(-rl * 0.35, rh, 0),
+				0.17, 0.21, 6, bark)
+			bd.drum(Vector3(-rl * 0.35, rh, 0), Vector3(rl * 0.35, rh, 0),
+				0.21, 0.21, 6, bark.lightened(0.04))
+			bd.drum(Vector3(rl * 0.35, rh, 0), Vector3(rl, 0, 0),
+				0.21, 0.17, 6, bark)
+
+		"fungus_shelf":
+			# A stump wearing brackets. Gives damp biomes something that is
+			# neither grass nor rock.
+			bd.drum(Vector3.ZERO, Vector3(0, 0.7, 0), 0.34, 0.30, 9,
+				bark.darkened(0.1))
+			var fn: int = 3 + int(Rng.unit1(sd, 1) * 3.0)
+			for fi in range(fn):
+				var ang: float = TAU * float(fi) / float(fn)
+				var fy: float = 0.2 + Rng.unit1(sd, fi + 2) * 0.45
+				var off := Vector3(cos(ang) * 0.3, fy, sin(ang) * 0.3)
+				bd.drum(off, off + Vector3(cos(ang) * 0.3, 0.04,
+					sin(ang) * 0.3), 0.05, 0.26, 7,
+					leaf.lightened(0.22))
+
+		"ash_cone":
+			# A low vent with a dark throat. Volcanic biomes had lava rock
+			# and nothing with a shape.
+			var ar: float = 0.9 + Rng.unit1(sd, 1) * 0.8
+			bd.cone(Vector3.ZERO, ar * 0.8, ar, 10, stone.darkened(0.14))
+			bd.emit = 0.5
+			bd.cone(Vector3(0, ar * 0.42, 0), ar * 0.26, ar * 0.3, 8,
+				accent)
+			bd.emit = 0.0
+
+		"shard_cluster":
+			# Several thin spikes from one base. Shares crystal's language
+			# without sharing its silhouette.
+			var kn: int = 3 + int(Rng.unit1(sd, 1) * 4.0)
+			bd.emit = 0.22
+			for ki in range(kn):
+				var ka: float = TAU * float(ki) / float(kn)
+				var kr: float = 0.18 + Rng.unit1(sd, ki + 2) * 0.3
+				var kh: float = 0.7 + Rng.unit1(sd, ki + 9) * 1.5
+				bd.cone(Vector3(cos(ka) * kr, 0, sin(ka) * kr), kh,
+					0.10 + Rng.unit1(sd, ki + 5) * 0.08, 5,
+					accent.lightened(0.1 * float(ki % 3)))
+			bd.emit = 0.0
+
 		"fern":
 			# A low rosette of fronds. Cheap, but it breaks up flat ground far
 			# better than more grass does because the silhouette differs.

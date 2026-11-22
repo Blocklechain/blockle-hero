@@ -1,5 +1,11 @@
 class_name Scatter
 extends RefCounted
+
+# Preloaded by path. A new class_name is absent from Godot's global class
+# cache until the editor reimports, and this script is compiled on the WORLD
+# BUILD THREAD — where the failure is a silent "generate() does not exist"
+# and the map simply never finishes, rather than an error anyone reads.
+const Dress := preload("res://scripts/world/Dress.gd")
 # ------------------------------------------------------------------------------
 # Where props go — and, just as importantly, where they do not.
 #
@@ -35,9 +41,19 @@ var cover: Array[Dictionary] = []
 var blocked: PackedByteArray = PackedByteArray()      # 1 = a prop blocks this cell
 
 
-static func generate(t: Terrain, plan: Layout, world_seed: int) -> Scatter:
+## [form_id] is the map's MapShape form ("warren", "hollow", ...). It changes
+## how much is planted and what kind — see Dress.gd. Empty means "no opinion",
+## which is what every caller written before forms existed passes, so they
+## keep the dressing they already had.
+## The MapShape form this scatter was generated for, or "" for none.
+var _form: String = ""
+
+
+static func generate(t: Terrain, plan: Layout, world_seed: int,
+		form_id: String = "") -> Scatter:
 	var s := Scatter.new()
 	s.blocked.resize(t.size * t.size)
+	s._form = form_id
 	s._place(t, plan, Rng.seed_of(world_seed, "scatter"))
 	s._place_cover(t, plan, Rng.seed_of(world_seed, "cover"))
 	return s
@@ -56,7 +72,10 @@ func _place_cover(t: Terrain, plan: Layout, sd: int) -> void:
 	for k in names:
 		weights.append(float(tbl[k]))
 
-	var density: float = float(Biome.field(t.biome_id, "cover_density", 30.0))
+	# Ground cover follows the form too, or a hollow is bare of props and
+	# still carpeted in grass — which reads as a mown lawn, not open ground.
+	var density: float = float(Biome.field(t.biome_id, "cover_density", 30.0)) \
+		* Dress.density_scale(_form)
 
 	# GRID JITTER, not rejection sampling. The prop pass throws darts and retries
 	# up to 14 times per placement, which is fine for a few thousand but hopeless
@@ -124,13 +143,17 @@ func cover_buckets() -> Dictionary:
 
 
 func _place(t: Terrain, plan: Layout, sd: int) -> void:
-	var table: Array = Biome.prop_table(t.biome_id)
+	# THE BIOME SAYS WHAT GROWS HERE; THE FORM SAYS HOW MUCH AND WHAT KIND.
+	# Re-weighting rather than substituting keeps frostcrag frostcrag even
+	# when it is shaped like a warren — see Dress.gd.
+	var table: Array = Dress.apply(Biome.prop_table(t.biome_id), _form)
 	var names: Array = table[0]
 	var weights: Array = table[1]
 	if names.is_empty():
 		return
 
-	var density: float = float(Biome.field(t.biome_id, "density", 4.0))
+	var density: float = float(Biome.field(t.biome_id, "density", 4.0)) \
+		* Dress.density_scale(_form)
 	var area: float = float(t.size * t.size) * t.cell * t.cell
 	# density is props per 100 m^2.
 	var want: int = int(area / 100.0 * density)

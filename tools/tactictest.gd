@@ -125,6 +125,36 @@ func _go() -> void:
 	# instead — so a chase loop here would be measuring the hero's class, not
 	# the archer's budget.
 	var kiter: HeroController = ranged[0]
+
+	# STAND IT SOMEWHERE WITH ROOM BEHIND IT.
+	#
+	# _retreat() ends in move_to(), so it returns false when the pathfinder
+	# cannot reach the goal — which means a boulder behind the archer reads
+	# here as "it ran out of budget". That is the same contamination the
+	# comment above avoids by driving _retreat directly instead of through a
+	# chase: this measures a TIME budget, and whatever scenery the generator
+	# happened to put at its feet is not the subject.
+	#
+	# It started mattering when map forms began dressing differently — a
+	# hollow boosts landmarks, and in this harness's deliberately tiny 96-cell
+	# region a couple of obelisks are enough to box an archer in. The real
+	# 352-cell hollow has ample room; the test region does not.
+	var terrain: Terrain = play.get("_terrain")
+	if terrain != null:
+		var path := Pathing.new(terrain)
+		var here: Vector2 = me.ground_position()
+		for step in range(24):
+			var ang: float = TAU * float(step) / 24.0
+			var dir := Vector2(cos(ang), sin(ang))
+			var stand: Vector2 = here + dir * 4.0
+			# Room for the whole 8m retreat the budget test asks for, plus a
+			# margin so the last step is not a coin flip.
+			var goal: Vector2 = here + dir * 13.0
+			if path.is_walkable(stand) and path.is_walkable(goal) \
+					and path.clear_line(stand, goal):
+				kiter._place(stand)
+				break
+
 	kiter.set_meta("retreat_t", 0.0)
 	kiter.set_meta("hold_until", 0.0)
 	var gave_way: int = 0

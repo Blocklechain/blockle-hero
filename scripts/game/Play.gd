@@ -191,13 +191,20 @@ func _ready() -> void:
 	# harnesses set it small to exercise the real scene quickly, and a shape
 	# that forced 448 cells on them would make every test slow. A caller that
 	# has not asked for a size gets the shape's own.
+	# A descent or a gauntlet is fought in its own arena, not in whatever
+	# form the region index happened to pick — see GameMode.shape_of().
 	var shape: Dictionary = MapShape.at(region_index)
+	if mode != GameMode.Id.CAMPAIGN:
+		var mode_shape: Dictionary = GameMode.shape_of(mode)
+		if not mode_shape.is_empty():
+			shape = mode_shape
 	var cells: int = (region_cells if region_cells > 0
-		else MapShape.cells_at(region_index))
+		else int(shape.get("cells", 384)))
 	_builder.build(world_seed, biome, maxi(cells, 32), 0.5,
-		Layout.Sym.ASYMMETRIC, MapShape.nodes_at(region_index),
-		MapShape.kind_at(region_index))
-	layout_kind = MapShape.kind_at(region_index)
+		Layout.Sym.ASYMMETRIC, int(shape.get("nodes", 11)),
+		int(shape.get("kind", Terrain.Kind.LANE)),
+		String(shape.get("id", "")))
+	layout_kind = int(shape.get("kind", Terrain.Kind.LANE))
 	_hud.set_message("%s — %s" % [shape.get("name", ""),
 		shape.get("blurb", "")])
 

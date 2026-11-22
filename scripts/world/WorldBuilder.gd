@@ -48,7 +48,8 @@ func is_busy() -> bool:
 # shared arrays that made the parallel attempt slower.
 func build(world_seed: int, biome_id: String, cells: int = 384,
 		cell_size: float = 0.5, symmetry: int = Layout.Sym.ASYMMETRIC,
-		node_count: int = 11, kind: int = Terrain.Kind.ARENA) -> bool:
+		node_count: int = 11, kind: int = Terrain.Kind.ARENA,
+		form_id: String = "") -> bool:
 	if _busy:
 		return false
 	_busy = true
@@ -60,7 +61,7 @@ func build(world_seed: int, biome_id: String, cells: int = 384,
 	_req = {
 		"seed": world_seed, "biome": biome_id, "cells": cells,
 		"cell": cell_size, "sym": symmetry, "nodes": node_count,
-		"kind": kind,
+		"kind": kind, "form": form_id,
 	}
 	_thread = Thread.new()
 	_thread.start(_run)
@@ -87,7 +88,10 @@ func _run() -> void:
 	var ter := Terrain.generate(world_seed, biome_id, cells, cell_size, plan)
 
 	_stage(2)
-	var scat := Scatter.generate(ter, plan, world_seed)
+	# The map's FORM reaches the scatter here, which is what makes a warren
+	# cluttered and a hollow bare rather than the same field at two sizes.
+	var scat := Scatter.generate(ter, plan, world_seed,
+		String(_req.get("form", "")))
 	scat.apply_blocking(ter)
 
 	_stage(3)

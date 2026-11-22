@@ -158,14 +158,27 @@ func _go() -> void:
 		var spot: Vector2 = play.get("_slam_at")
 		# Well clear, on walkable ground.
 		me._place(spot + Vector2(radius * 2.5, 0.0))
-		var safe_before: float = me.body.health
+		# WATCH FOR SLAM DAMAGE SPECIFICALLY, not for a change in health.
+		#
+		# Same trap as the survivability check above: the boss chases, and
+		# over a wind-up long enough to be dodgeable it closes the distance
+		# and lands ordinary swings. Comparing total HP therefore asserts
+		# "stepping out of the circle also makes you immune to melee", which
+		# nobody designed and which gets harder to satisfy every time the
+		# telegraph is made fairer. The damaged signal carries its source, so
+		# the real property — the SLAM missed — is directly observable.
+		var slam_hits: Array = [0]
+		var watch := func(_amount: float, _crit: bool, source: String):
+			if source == "Slam":
+				slam_hits[0] += 1
+		me.body.damaged.connect(watch)
 		for i in range(240):
 			await process_frame
 			if play.get("_slam_at") == Vector2.INF:
 				break
-		check("...and stepping out of it does not",
-			is_equal_approx(me.body.health, safe_before),
-			"%.0f -> %.0f" % [safe_before, me.body.health])
+		me.body.damaged.disconnect(watch)
+		check("...and stepping out of it means the slam misses",
+			slam_hits[0] == 0, "%d slam hits while clear" % slam_hits[0])
 	else:
 		print("    boss: alive=%s busy=%s stunned=%s gap=%.1f cd=%.2f "
 			% [boss.body.alive, boss.is_busy(), boss.is_stunned(),
