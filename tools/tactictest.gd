@@ -254,6 +254,33 @@ func _go() -> void:
 
 	kiter.set_meta("retreat_t", 0.0)
 	kiter.set_meta("hold_until", 0.0)
+
+	# WAIT FOR THE ARCHER TO BE FREE, and get the champion out of its way.
+	#
+	# The loop below drives _retreat twelve times with NO frames in between,
+	# which is deliberate — it is measuring a budget in think-ticks, not in
+	# seconds. But _retreat ends in move_to, and move_to refuses outright
+	# while a controller is busy or dead. So an archer that is mid-cast when
+	# this section starts refuses all twelve calls and the section reports
+	# "it ran out of ground" for an archer that never tried: gave_way 0,
+	# which is what CI was seeing while this passed locally.
+	#
+	# The champion is moved off first for two reasons: it stops the archer
+	# casting at them, and it stops the champion's own auto-attack killing
+	# the archer mid-section.
+	me._place(anchor + lane * 60.0)
+	if kiter.body != null:
+		kiter.body.max_health = 1_000_000.0
+		kiter.body.health = kiter.body.max_health
+	for i in range(240):
+		if not kiter.is_busy() and not kiter.is_dead():
+			break
+		await process_frame
+	check("the archer is free to be driven", not kiter.is_busy()
+		and not kiter.is_dead(),
+		"busy=%s dead=%s" % [kiter.is_busy(), kiter.is_dead()])
+	kiter.set_meta("retreat_t", 0.0)
+	kiter.set_meta("hold_until", 0.0)
 	var gave_way: int = 0
 	var planted: bool = false
 	for i in range(12):
