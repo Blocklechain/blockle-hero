@@ -24,6 +24,18 @@ enum Kind {
 	BLADE,       # Fighter
 	ARROW,       # Ranger
 	SIGIL,       # Mage
+	# ---- the left navigation panel ----
+	# One per destination. Drawn rather than lettered because three of the
+	# seven destinations begin with C — Champions, Campaign, Contracts — so a
+	# collapsed rail showing initials would be three identical buttons.
+	MENU,        # three bars: open and close the panel
+	ROSTER,      # a figure: Champions
+	CHEST,       # a lidded box: Stash
+	SCALES,      # a balance: Merchant
+	BANNER,      # a pennant: Campaign
+	PARTY,       # two figures: Party
+	SCROLL,      # a contract
+	HOURGLASS,   # Training, which is a thing that happens over time
 }
 
 ## The brand hexagon: pointed top and bottom, vertical sides. Taken from the
@@ -88,6 +100,14 @@ func _draw() -> void:
 		Kind.BLADE: _blade(o, s)
 		Kind.ARROW: _arrow(o, s)
 		Kind.SIGIL: _sigil(o, s)
+		Kind.MENU: _menu(o, s)
+		Kind.ROSTER: _figure(o, s, 0.5, 0.78)
+		Kind.CHEST: _chest(o, s)
+		Kind.SCALES: _scales(o, s)
+		Kind.BANNER: _banner(o, s)
+		Kind.PARTY: _party(o, s)
+		Kind.SCROLL: _scroll(o, s)
+		Kind.HOURGLASS: _hourglass(o, s)
 
 
 func _poly(pts: PackedVector2Array, o: Vector2, s: float, scale: float,
@@ -193,3 +213,98 @@ func _sigil(o: Vector2, s: float) -> void:
 	_poly(PackedVector2Array([
 		Vector2(0.50, 0.22), Vector2(0.72, 0.60), Vector2(0.28, 0.60),
 	]), o, s, 1.0, tint)
+
+
+# ------------------------------------------------------------------------------
+# The navigation panel's icons.
+#
+# All of them are built from the same primitives as the rest of this file and
+# all of them have to survive being drawn at the rail's size (about 54 px) in
+# one flat colour, so none of them leans on fine detail or on more than one
+# tone.
+# ------------------------------------------------------------------------------
+
+func _menu(o: Vector2, s: float) -> void:
+	var t: float = maxf(s * 0.11, 3.0)
+	for y in [0.26, 0.50, 0.74]:
+		draw_rect(Rect2(o + Vector2(0.16, float(y)) * s - Vector2(0.0, t * 0.5),
+			Vector2(0.68 * s, t)), tint)
+
+
+## A head and a pair of shoulders. `cx` is the centre and `scale` shrinks the
+## whole figure, so the party icon can draw two of these smaller.
+func _figure(o: Vector2, s: float, cx: float, scale: float) -> void:
+	var head_r: float = 0.15 * scale
+	draw_circle(o + Vector2(cx, 0.30) * s, head_r * s, tint)
+	# A trapezoid rather than a rectangle: square shoulders read as a bottle.
+	_poly(PackedVector2Array([
+		Vector2(cx - 0.055 * scale, 0.52), Vector2(cx + 0.055 * scale, 0.52),
+		Vector2(cx + 0.24 * scale, 0.86), Vector2(cx - 0.24 * scale, 0.86),
+	]), o, s, 1.0, tint)
+
+
+func _party(o: Vector2, s: float) -> void:
+	_figure(o, s, 0.33, 0.58)
+	_figure(o, s, 0.67, 0.58)
+
+
+func _chest(o: Vector2, s: float) -> void:
+	# Body, then the lid band punched through in the page colour, which is
+	# what makes it read as a chest and not a filled rectangle.
+	draw_rect(Rect2(o + Vector2(0.14, 0.30) * s, Vector2(0.72, 0.52) * s), tint)
+	draw_rect(Rect2(o + Vector2(0.14, 0.44) * s, Vector2(0.72, 0.07) * s),
+		HeroTheme.BG)
+	# The clasp.
+	draw_rect(Rect2(o + Vector2(0.45, 0.40) * s, Vector2(0.10, 0.16) * s),
+		HeroTheme.BG)
+
+
+func _scales(o: Vector2, s: float) -> void:
+	var t: float = maxf(s * 0.075, 2.0)
+	# Post and beam.
+	draw_rect(Rect2(o + Vector2(0.48, 0.20) * s, Vector2(t, 0.62 * s)), tint)
+	draw_rect(Rect2(o + Vector2(0.14, 0.26) * s, Vector2(0.72 * s, t)), tint)
+	# Foot, so it stands rather than floats.
+	draw_rect(Rect2(o + Vector2(0.32, 0.80) * s, Vector2(0.36 * s, t)), tint)
+	# Two pans.
+	for cx in [0.22, 0.78]:
+		_poly(PackedVector2Array([
+			Vector2(float(cx) - 0.13, 0.42), Vector2(float(cx) + 0.13, 0.42),
+			Vector2(float(cx), 0.60),
+		]), o, s, 1.0, tint)
+
+
+func _banner(o: Vector2, s: float) -> void:
+	var t: float = maxf(s * 0.085, 2.0)
+	draw_rect(Rect2(o + Vector2(0.24, 0.10) * s, Vector2(t, 0.80 * s)), tint)
+	# A swallow-tailed pennant: the notch is what tells it apart from a plain
+	# triangle at rail size.
+	_poly(PackedVector2Array([
+		Vector2(0.28, 0.14), Vector2(0.86, 0.26), Vector2(0.70, 0.38),
+		Vector2(0.86, 0.50), Vector2(0.28, 0.56),
+	]), o, s, 1.0, tint)
+
+
+func _scroll(o: Vector2, s: float) -> void:
+	draw_rect(Rect2(o + Vector2(0.24, 0.14) * s, Vector2(0.52, 0.72) * s), tint)
+	# Three lines of writing, punched out.
+	for y in [0.30, 0.46, 0.62]:
+		draw_rect(Rect2(o + Vector2(0.34, float(y)) * s,
+			Vector2(0.32 * s, maxf(s * 0.055, 2.0))), HeroTheme.BG)
+	# The rolled ends.
+	for y in [0.10, 0.82]:
+		draw_rect(Rect2(o + Vector2(0.18, float(y)) * s,
+			Vector2(0.64 * s, 0.08 * s)), tint)
+
+
+func _hourglass(o: Vector2, s: float) -> void:
+	_poly(PackedVector2Array([
+		Vector2(0.24, 0.14), Vector2(0.76, 0.14), Vector2(0.50, 0.50),
+	]), o, s, 1.0, tint)
+	_poly(PackedVector2Array([
+		Vector2(0.50, 0.50), Vector2(0.76, 0.86), Vector2(0.24, 0.86),
+	]), o, s, 1.0, tint)
+	# Caps, so the sand has somewhere to be.
+	for y in [0.08, 0.84]:
+		draw_rect(Rect2(o + Vector2(0.18, float(y)) * s,
+			Vector2(0.64 * s, 0.08 * s)), tint)

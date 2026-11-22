@@ -27,8 +27,22 @@ extends SceneTree
 #   godot --headless --path . --script tools/scrolltest.gd
 # ------------------------------------------------------------------------------
 
+## THE SCREENS THAT ARE LISTS.
+##
+## UiRoute.CAMPAIGN used to be here and no longer is, because the campaign no
+## longer has a list: it is a carousel of full-screen plates, paged by edge
+## arrows, by swipe and by the act row. Nothing on it scrolls, so demanding a
+## ScrollContainer would be demanding that a screen keep a widget it has no
+## content for.
+##
+## Dropping a route from this list is NOT the same as dropping the property.
+## What this harness protects is "the player can reach content that does not
+## fit", and on the campaign that is now tools/selecttest.gd's job — it drives
+## the real arrows, the real swipe and the real act jumps and asserts that
+## every one of the hundred maps can be reached. A screen leaving this list
+## has to arrive somewhere else.
 const ROUTES: Array = [
-	UiRoute.CHAMPIONS, UiRoute.STASH, UiRoute.SHOP, UiRoute.CAMPAIGN,
+	UiRoute.CHAMPIONS, UiRoute.STASH, UiRoute.SHOP,
 ]
 
 var fails: int = 0

@@ -8,6 +8,7 @@ const GameMode := preload("res://scripts/game/GameMode.gd")
 const TrainingScreen := preload("res://scripts/ui/TrainingScreen.gd")
 const QuestScreen := preload("res://scripts/ui/QuestScreen.gd")
 const PartyScreen := preload("res://scripts/ui/PartyScreen.gd")
+const NavPanel := preload("res://scripts/ui/NavPanel.gd")
 # ------------------------------------------------------------------------------
 # THE MENU SHELL: the thing that makes the rest of the game reachable.
 #
@@ -43,8 +44,10 @@ var _overlay: CanvasLayer
 
 var _bar: CurrencyBar
 var _host: Control
-var _tabs: HBoxContainer
-var _tab_buttons: Dictionary = {}          # route -> Button
+## THE LEFT PANEL, which replaced a row of four tabs across the bottom. See
+## NavPanel.gd for why: the bottom row cost a band of the scarce vertical
+## direction and could only hold four of the seven destinations.
+var _nav: NavPanel
 var _screen: UiScreen = null
 var _route: String = UiRoute.TITLE
 
@@ -154,22 +157,23 @@ func _build_chrome() -> void:
 	_bar.bind_wallet(roster.wallet)
 	column.add_child(_bar)
 
+	# NAVIGATION BESIDE THE SCREEN, not under it. In landscape, height is the
+	# scarce direction and width is not, so the chrome that is always present
+	# belongs down the side.
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", HeroTheme.GAP)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	column.add_child(body)
+
+	_nav = NavPanel.new()
+	_nav.chose.connect(func(route: String) -> void: _go(route, ""))
+	body.add_child(_nav)
+
 	_host = Control.new()
+	_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_host.clip_contents = true
-	column.add_child(_host)
-
-	_tabs = HBoxContainer.new()
-	_tabs.add_theme_constant_override("separation", 12)
-	column.add_child(_tabs)
-	var group := ButtonGroup.new()
-	for pair in [[UiRoute.CHAMPIONS, "Champions"], [UiRoute.STASH, "Stash"],
-			[UiRoute.SHOP, "Merchant"], [UiRoute.CAMPAIGN, "Campaign"]]:
-		var b := HeroTheme.segment(String(pair[1]), group)
-		b.add_theme_font_size_override("font_size", HeroTheme.F_SMALL)
-		b.pressed.connect(_go.bind(String(pair[0]), ""))
-		_tab_buttons[String(pair[0])] = b
-		_tabs.add_child(b)
+	body.add_child(_host)
 
 	# The toast sits on its own layer so it is readable over the menus AND over
 	# the game — "progress saved" matters most on the way out.
@@ -249,7 +253,12 @@ func _go(route: String, arg: Variant = null) -> void:
 
 	var chrome: bool = route != UiRoute.TITLE
 	_bar.visible = chrome
-	_tabs.visible = chrome
+	_nav.visible = chrome
+	# The title screen is full-bleed, so a panel left open there would come
+	# back open over it. Closed on the way out, which is also the state the
+	# next screen wants.
+	if not chrome:
+		_nav.set_open(false)
 	# The screen's name and its way back now ride in the currency bar rather
 	# than in a band of their own. Set here, where the route is known, so the
 	# screens stay unaware of the chrome around them.
@@ -260,10 +269,9 @@ func _go(route: String, arg: Variant = null) -> void:
 			Callable() if not _screen.show_back()
 				else func() -> void: _go(back_to, who))
 	# The character sheet is pushed on top of the champion list, so the list's
-	# tab stays lit rather than leaving every tab dark.
+	# row stays lit rather than leaving every row dark.
 	var lit: String = UiRoute.CHAMPIONS if route == UiRoute.SHEET else route
-	for key in _tab_buttons.keys():
-		(_tab_buttons[key] as Button).button_pressed = String(key) == lit
+	_nav.mark(lit)
 
 
 func _make_screen(route: String) -> UiScreen:
