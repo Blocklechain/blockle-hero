@@ -100,11 +100,32 @@ func _screen() -> void:
 	for i in range(8):
 		await process_frame
 
-	# The locked rows have to explain themselves on screen.
-	var words: PackedStringArray = _strings(shell)
-	check("a locked region tells the player what opens it",
-		_has(words, "Clear region"),
-		_first(words, "Clear region"))
+	# A SEALED MAP HAS TO EXPLAIN ITSELF ON SCREEN.
+	#
+	# This used to read the words straight off the screen, because the
+	# campaign was a hundred-row list and every locked row carried its own
+	# reason. It is a carousel now: the screen opens on the FURTHEST MAP
+	# UNLOCKED, which by definition is not sealed, so the reason is not
+	# visible until the player pages into one that is.
+	#
+	# The property is unchanged — a map the player cannot enter must say what
+	# opens it — so the test pages right, the way a player would, until it
+	# finds a sealed one, and then looks.
+	var screen: UiScreen = shell.current_screen()
+	var right: Button = _arrow(screen, false)
+	check("the carousel has an arrow to page forward", right != null)
+	var sealed_found: bool = false
+	for i in range(Campaign.region_count()):
+		if right == null or right.disabled:
+			break
+		right.pressed.emit()
+		for f in range(3):
+			await process_frame
+		if _has(_strings(shell), "Clear region"):
+			sealed_found = true
+			break
+	check("a sealed region tells the player what opens it", sealed_found,
+		_first(_strings(shell), "Clear region"))
 
 	# THE REAL GATE. Ask the launcher for a region nobody has earned. It must
 	# refuse — this is the path the clear screen's "next stage" uses, which
@@ -149,3 +170,14 @@ func _strings(n: Node, into: PackedStringArray = PackedStringArray()
 	for c in n.get_children():
 		_strings(c, into)
 	return into
+
+
+## The campaign carousel's edge arrows, found BY NAME — they carry a drawn
+## chevron and no label, and the header's own back button carries the same
+## BACK glyph, so searching by glyph finds the wrong one.
+func _arrow(node: Node, want_back: bool) -> Button:
+	var plate: Node = node.get("_plate")
+	if plate == null:
+		return null
+	return plate.get_node_or_null(
+		"PageBack" if want_back else "PageNext") as Button

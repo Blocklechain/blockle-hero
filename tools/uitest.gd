@@ -21,6 +21,9 @@ var _backup: String = ""
 var _had_save: bool = false
 
 
+## Sections that reached their end — see the check in _init.
+var _ran: int = 0
+
 func check(label: String, ok: bool, detail: String = "") -> void:
 	if not ok:
 		fails += 1
@@ -47,16 +50,24 @@ func _run() -> void:
 		quit()
 		return
 
-	await _screens_build(heroes)
-	await _champion_select(heroes)
-	await _champion_sheet(heroes)
-	await _stash(heroes)
-	await _merchant(heroes)
-	await _campaign(heroes)
-	await _handoff(heroes)
-	await _persistence(heroes)
+	await _screens_build(heroes); _ran += 1
+	await _champion_select(heroes); _ran += 1
+	await _champion_sheet(heroes); _ran += 1
+	await _stash(heroes); _ran += 1
+	await _merchant(heroes); _ran += 1
+	await _campaign(heroes); _ran += 1
+	await _handoff(heroes); _ran += 1
+	await _persistence(heroes); _ran += 1
 	_restore_save()
 
+	# EVERY SECTION MUST HAVE REACHED ITS END.
+	#
+	# A runtime error inside one of these aborts that function and GDScript
+	# carries on to the next, so without this a crash reads as a clean run.
+	# It happened the moment the campaign screen stopped containing a
+	# VirtualList: this file indexed [0] into an empty array, the whole
+	# campaign section stopped dead, and the summary still said 0 failures.
+	check("every section ran to completion", _ran == 8, "%d of 8" % _ran)
 	print("\n=== %d failure(s) ===" % fails)
 	quit()
 
@@ -545,9 +556,26 @@ func _campaign(heroes: PackedStringArray) -> void:
 	shell.goto(UiRoute.CAMPAIGN, hero)
 	await _settle()
 	var screen: UiScreen = shell.current_screen()
-	var list: VirtualList = (_lists(screen) as Array)[0]
-	check("every region is listed", list.count() == Campaign.region_count(),
-		"%d regions" % list.count())
+
+	# EVERY REGION MUST STILL BE REACHABLE. This used to be "the list has one
+	# row per region", which a carousel cannot satisfy — but the property it
+	# was protecting is reach, not rows, and dropping the list is exactly how
+	# reach gets lost. The act row is what replaces the scrollbar: ten
+	# buttons, so the last act is one tap away rather than ninety.
+	var acts: int = 0
+	for b in _all_buttons(screen):
+		if (b as Button).tooltip_text.is_empty():
+			continue
+		for a in range(Campaign.act_count()):
+			if (b as Button).tooltip_text == Campaign.act_name(a):
+				acts += 1
+	check("every act can be jumped to", acts == Campaign.act_count(),
+		"%d of %d acts" % [acts, Campaign.act_count()])
+	check("...which is how the whole campaign stays in reach",
+		Campaign.act_count() * Campaign.maps_per_act()
+			>= Campaign.region_count(),
+		"%d acts x %d maps covers %d regions" % [Campaign.act_count(),
+			Campaign.maps_per_act(), Campaign.region_count()])
 
 	var locked: Button = _button_with(screen, Campaign.tier_name(
 		Campaign.Tier.MERCILESS))
@@ -691,3 +719,11 @@ func _restore_save() -> void:
 	var f := FileAccess.open(Roster.SAVE_PATH, FileAccess.WRITE)
 	if f != null:
 		f.store_string(_backup)
+
+
+func _all_buttons(node: Node, out: Array = []) -> Array:
+	if node is Button:
+		out.append(node)
+	for c in node.get_children():
+		_all_buttons(c, out)
+	return out
