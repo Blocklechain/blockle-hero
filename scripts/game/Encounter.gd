@@ -400,6 +400,11 @@ static func build(region_index: int, tier: int, campaign_seed: int,
 # RING PLACEMENT — the arena, and therefore PvP. Unchanged.
 # ------------------------------------------------------------------------------
 
+## How many bodies share a pack in a ring placement. Three keeps a group
+## small enough to fight and large enough to feel like a group.
+const RING_PACK_SIZE: int = 3
+
+
 static func _ring(region_index: int, tier: int, campaign_seed: int,
 		pool: PackedStringArray, pathing: Pathing, player_at: Vector2) -> Array:
 	var out: Array = []
@@ -420,6 +425,12 @@ static func _ring(region_index: int, tier: int, campaign_seed: int,
 		s.is_elite = elite
 		s.size = ELITE_SIZE if elite else 1.0
 		s.level = level + (1 if elite else 0)
+		# PACK MEMBERSHIP, which _ring used to leave at its default of -1 —
+		# and -1 is the BOSS marker, so every arena enemy was reading as a
+		# boss to anything that groups by pack. The ring has no lane to walk
+		# down, so membership is by proximity instead: consecutive spawns
+		# share a pack, which is also how they end up standing together.
+		s.pack = i / maxi(RING_PACK_SIZE, 1)
 		s.at = _place(pathing, player_at, seed, i, 9.0, 34.0)
 		out.append(s)
 

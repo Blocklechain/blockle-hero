@@ -906,7 +906,16 @@ func _the_ring_survives(m: Dictionary, roster: PackedStringArray) -> void:
 			inside += 1
 		if not path.is_walkable(s.at):
 			unwalkable += 1
-		if s.pack != -1 or s.progress != 0.0:
+		# PROGRESS is the lane-only field — "how far down the spine" means
+		# nothing in a ring, so it must stay 0.
+		#
+		# PACK IS NOT LANE STATE, which is what this check used to assume.
+		# Play.gd wakes a pack together, and skips grouping entirely for
+		# pack < 0 — so leaving ring spawns at -1 meant every arena enemy
+		# woke alone and a group of nine was fought as nine duels. That is
+		# the exact bug the lane placement was given packs to fix. Rings now
+		# get packs too, so only `progress` is asserted absent here.
+		if s.progress != 0.0:
 			lane_state += 1
 		angles.append((s.at - start).angle())
 

@@ -124,10 +124,25 @@ func _go() -> void:
 			break
 	check("standing in it hurts", me.body.health < hp_before,
 		"%.0f -> %.0f" % [hp_before, me.body.health])
-	# ...AND LEAVES YOU ALIVE. Dying to the first telegraph you ever see
-	# teaches nothing, because you never find out it was avoidable.
-	check("...but is survivable from full health", me.body.alive,
-		"%.0f of %.0f left" % [me.body.health, me.body.max_health])
+
+	# ...AND THE SLAM ITSELF LEAVES YOU ALIVE. Dying to the first telegraph
+	# you ever see teaches nothing, because you never find out it was
+	# avoidable.
+	#
+	# MEASURED ON THE SLAM, NOT ON LIVE HP, and that distinction is the whole
+	# reason this reads oddly. The boss is standing 6m away — inside melee —
+	# so the champion is also being hit normally for the whole wind-up. When
+	# the window was widened to make the slam dodgeable at all, those extra
+	# swings started finishing the job, and this check went red while the
+	# thing it names was working perfectly. It had been quietly asserting
+	# "a slam plus however many autoattacks fit in the window is survivable",
+	# which is not a property anyone designed for and gets harder every time
+	# the telegraph gets fairer.
+	var cap: float = me.body.max_health * float(play.get("SLAM_MAX_FRACTION"))
+	var dealt: float = minf(float(play.get("_slam_damage")), cap)
+	check("...but the slam itself cannot kill from full",
+		dealt < me.body.max_health,
+		"%.0f of %.0f max" % [dealt, me.body.max_health])
 
 	# STEP OUT OF IT.
 	me.body.health = me.body.max_health

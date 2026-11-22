@@ -1,4 +1,10 @@
 extends Node3D
+
+# Preloaded rather than relied on by class_name: a newly added script is not in
+# Godot's global class cache until the editor has reimported, and every
+# headless harness that loads this scene would fail to PARSE until someone
+# opened the project. A preload resolves by path and has no such dependency.
+const MapShape := preload("res://scripts/game/MapShape.gd")
 # ------------------------------------------------------------------------------
 # The playable slice: generate a region on the background thread, drop a hero in
 # it, and let the player fight in it.
@@ -55,7 +61,15 @@ extends Node3D
 ## of ground, about four seconds of generation); it is an export only so a
 ## headless harness can ask for a small region and still exercise the real
 ## scene rather than a stub of it.
-@export var region_cells: int = 384
+## Region size in walk cells, at 0.5 m each.
+##
+## ZERO MEANS "ask the map's shape" (MapShape.gd), which is what the campaign
+## wants. A positive value overrides it, which is what the headless harnesses
+## do — they run the REAL scene on a 96-cell region so a test is seconds
+## rather than minutes. Zero-as-unset rather than a separate flag because the
+## harnesses set this with `play.set("region_cells", n)`, and a flag they do
+## not know to set would silently never be true.
+@export var region_cells: int = 0
 
 ## THE PLAYER'S ACCOUNT, assigned by whoever launched this scene (UiShell.gd)
 ## before it enters the tree.
@@ -151,15 +165,27 @@ func _ready() -> void:
 	_builder.progress.connect(func(s: String, f: float):
 		_hud.set_message("%s  %d%%" % [s, int(f * 100.0)], true))
 	_builder.finished.connect(_on_world_ready)
-	# PASS THE LAYOUT KIND EXPLICITLY.
+	# THE MAP'S SHAPE COMES FROM ITS INDEX, not from literals here.
 	#
-	# WorldBuilder.build() defaults `kind` to Kind.ARENA so that callers written
-	# before lanes existed kept the map they already built — and this caller was
-	# never updated, so every campaign map was still an arena. The lane
-	# generator, the spine encounters and the dread curve were all being built
-	# and then not used by the one scene that plays them.
-	_builder.build(world_seed, biome, maxi(region_cells, 32), 0.5,
-		Layout.Sym.ASYMMETRIC, 11, layout_kind)
+	# This call used to pass `Kind.LANE, 384 cells, 11 nodes` for every one of
+	# the hundred campaign maps, so the whole campaign was one floor plan in
+	# sixteen palettes. MapShape.at() gives each map a form — a spine, a
+	# warren, a long causeway, an open hollow, a looping crossroads — and acts
+	# end on the big colosseum. See MapShape.gd.
+	#
+	# `region_cells` stays an override rather than being ignored: headless
+	# harnesses set it small to exercise the real scene quickly, and a shape
+	# that forced 448 cells on them would make every test slow. A caller that
+	# has not asked for a size gets the shape's own.
+	var shape: Dictionary = MapShape.at(region_index)
+	var cells: int = (region_cells if region_cells > 0
+		else MapShape.cells_at(region_index))
+	_builder.build(world_seed, biome, maxi(cells, 32), 0.5,
+		Layout.Sym.ASYMMETRIC, MapShape.nodes_at(region_index),
+		MapShape.kind_at(region_index))
+	layout_kind = MapShape.kind_at(region_index)
+	_hud.set_message("%s — %s" % [shape.get("name", ""),
+		shape.get("blurb", "")])
 
 
 ## The account loot is banked into.
