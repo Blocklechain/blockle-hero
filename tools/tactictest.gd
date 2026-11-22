@@ -86,10 +86,49 @@ func _go() -> void:
 		"%.1f m" % r_stand)
 
 	# A ranged enemy standing on the player's toes must BACK AWAY, not trade.
+	#
+	# THE PAIR IS PLACED ON GROUND WITH ROOM, both of them, rather than the
+	# archer being dropped a metre from wherever the champion happened to
+	# spawn. _retreat ends in move_to, so an archer with a rock behind it
+	# cannot back off at all — and this is a 96-cell harness region, where
+	# that is the common case rather than the rare one. It failed on CI for
+	# exactly this reason while passing locally, which is the signature of a
+	# test measuring the scenery instead of the behaviour.
+	#
+	# The retreat goal is measured from the CHAMPION (`from + away * want`),
+	# so the line that has to be clear runs from the champion outward past
+	# the archer, for the full stand-off plus a margin.
 	var r: HeroController = ranged[0]
 	r.set_meta("pack", -2)
 	play._awake[-2] = true
-	r._place(me.ground_position() + Vector2(1.0, 0.0))
+	var want_room: float = r_stand + 3.0
+	var path2 := Pathing.new(play.get("_terrain") as Terrain)
+	var anchor: Vector2 = me.ground_position()
+	var lane: Vector2 = Vector2.ZERO
+	for radius in [0.0, 4.0, 8.0, 12.0]:
+		for step in range(48):
+			var ang: float = TAU * float(step) / 48.0
+			var dir := Vector2(cos(ang), sin(ang))
+			var stand_at: Vector2 = me.ground_position() + dir * radius
+			if not path2.is_walkable(stand_at):
+				continue
+			for out_ang in range(48):
+				var d2 := Vector2(cos(TAU * float(out_ang) / 48.0),
+					sin(TAU * float(out_ang) / 48.0))
+				var far: Vector2 = stand_at + d2 * want_room
+				if path2.is_walkable(far) \
+						and path2.clear_line(stand_at, far):
+					anchor = stand_at
+					lane = d2
+					break
+			if lane != Vector2.ZERO:
+				break
+		if lane != Vector2.ZERO:
+			break
+	check("the pair can be stood somewhere the archer has room behind it",
+		lane != Vector2.ZERO, "needed %.1f m of clear ground" % want_room)
+	me._place(anchor)
+	r._place(anchor + lane * 1.0)
 	var start_gap: float = r.ground_position().distance_to(
 		me.ground_position())
 	for i in range(240):
