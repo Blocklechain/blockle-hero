@@ -131,8 +131,26 @@ func _go() -> void:
 	r._place(anchor + lane * 1.0)
 	var start_gap: float = r.ground_position().distance_to(
 		me.ground_position())
+	# THE CHAMPION IS HELD ALIVE for the duration.
+	#
+	# Play._think() returns immediately for a dead champion, so the whole
+	# enemy brain — including the archer's retreat — simply stops. This
+	# section stands the champion still for 240 frames in a region with six
+	# awake enemies, and on CI they died: the archer froze 0.1 m from where
+	# it started and the failure read as "a ranged enemy does not back off",
+	# with no mention of the champion anywhere. (The same dead-champion
+	# mechanism was behind spectacletest's CI-only dodge failure.)
+	#
+	# The subject here is the archer's footwork, not the champion's
+	# survival, which is measured elsewhere — so it is topped up rather than
+	# left to luck, and asserted afterwards so this cannot silently become
+	# vacuous.
 	for i in range(240):
+		if me.body != null:
+			me.body.health = me.body.max_health
 		await process_frame
+	check("the champion survived to watch it", me.body != null
+		and me.body.alive and not me.is_dead())
 	var end_gap: float = r.ground_position().distance_to(
 		me.ground_position())
 	check("a ranged enemy backs off when you close on it",
