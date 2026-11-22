@@ -158,11 +158,27 @@ func _go() -> void:
 	# Healing here keeps the next section measuring the thing it is named
 	# after. The survivability of the slam itself is already asserted above,
 	# against its own capped damage.
-	if me.body != null and me.body.alive:
-		me.body.health = me.body.max_health
+	# PUT THEM BACK ON THEIR FEET, not just back to full health.
+	#
+	# This read `if me.body.alive: health = max_health`, which is a heal that
+	# does nothing in the one case it matters: once Combatant.alive is false,
+	# assigning health does not resurrect anything, and Play._think() returns
+	# immediately for a dead champion — so the boss never thought again and
+	# never slammed. It passed locally, where the champion happened to
+	# survive the section above, and failed every time on CI, where they did
+	# not. The symptom was "the boss slammed a second time" failing with
+	# hero_alive=false, which reads as a boss problem.
+	#
+	# The dodge section is named after stepping out of the circle. It must
+	# start from a living champion by construction, not by luck.
+	me.body.health = me.body.max_health
+	me.body.alive = true
+	me.revive()
+	check("the champion is on their feet for the dodge",
+		me.body.alive and not me.is_dead(),
+		"%.0f hp" % me.body.health)
 
 	# STEP OUT OF IT.
-	me.body.health = me.body.max_health
 	play.set("_slam_cd", 0.0)
 	boss._place(me.ground_position() + Vector2(6.0, 0.0))
 	var again: bool = false
