@@ -226,7 +226,13 @@ func _resolve_roster() -> Roster:
 		if theirs is Roster:
 			roster = theirs
 			return roster
-	return Roster.new()
+	# MARKED EPHEMERAL, because this file calls _account.save() in five places
+	# and every one of them would otherwise write this empty account straight
+	# over the player's real one. The claim above that it is never saved was
+	# false until the flag existed.
+	var scratch := Roster.new()
+	scratch.ephemeral = true
+	return scratch
 
 
 func _build_loot_ground() -> void:
@@ -482,6 +488,14 @@ var _clock: float = 0.0
 ## The enemy id of this map's boss, -1 once it is dead or was never placed.
 var _boss_id: int = -1
 var _kills: int = 0
+## WHAT THIS RUN PRODUCED, for the quest board. Counted here rather than
+## reconstructed afterwards: the stash cannot tell you WHICH region a piece
+## came from, and "bring something back from map 23" is exactly that question.
+var _elites_killed: int = 0
+## rarity -> how many collected this run.
+var _drops_by_rarity: Dictionary = {}
+## equipment slot -> how many collected this run.
+var _drops_by_slot: Dictionary = {}
 ## What the account held on arrival, so the clear screen can report what the
 ## run actually earned rather than what the player happens to own.
 var _snapshot: Dictionary = {}
@@ -581,6 +595,8 @@ func _populate(ter: Terrain, plan: Layout, player_at: Vector2,
 			Elite.apply(foe.body, trait_id)
 			Elite.mark(foe, trait_id)
 		foe.set_meta("trait", trait_id)
+		if spawn.is_elite:
+			foe.set_meta("is_elite", true)
 		made += 1
 
 	print("region %d tier %d wave %d: %d enemies (x%.2f)"
@@ -904,6 +920,11 @@ func _on_enemy_died(id: int) -> void:
 	if i < 0:
 		return
 	_kills += 1
+	# Counted on DEATH, from the flag stamped at spawn. Counting at spawn
+	# would credit a quest for elites the player walked past.
+	var corpse: Node = _enemy_nodes[i] if i < _enemy_nodes.size() else null
+	if corpse != null and bool(corpse.get_meta("is_elite", false)):
+		_elites_killed += 1
 	_award_xp()
 	var node: Node3D = _enemy_nodes[i]
 	if node != null and is_instance_valid(node):
@@ -990,10 +1011,19 @@ func _clear_region() -> void:
 		"crystals": crystals,
 		"cleared": _account.cleared_map_count(tier),
 		"total": Campaign.map_count(),
+		# ---- what the quest board reads ----
+		# Flattened into the summary rather than passed as nested maps, so
+		# the one signal Play already emits carries everything and no new
+		# integration point is needed. Quest.note_run() reads these keys.
+		"cleared_this_run": true,
+		"elites_killed": _elites_killed,
+		"depth_reached": 0,
 		# There is always a next map unless this was the hundredth.
 		"next": region_index + 1 if region_index + 1 < Campaign.map_count()
 			else -1,
 	}
+	_merge_drop_keys(summary)
+	_apply_quests(summary)
 	_hud.set_message("%s has fallen." % Campaign.region_title(region_index))
 	region_cleared.emit(summary)
 
@@ -1042,9 +1072,16 @@ func _finish_run() -> void:
 		"crystals": 0,
 		"cleared": _wave + 1,
 		"total": GameMode.wave_count(mode),
+		"cleared_this_run": false,
+		"elites_killed": _elites_killed,
+		# A descent's depth is the quest-visible number; other modes report 0
+		# so a REACH_DEPTH quest is not satisfied by a gauntlet.
+		"depth_reached": (_wave + 1) if mode == GameMode.Id.DESCENT else 0,
 		# Nothing to advance to: a mode run is its own thing.
 		"next": -1,
 	}
+	_merge_drop_keys(summary)
+	_apply_quests(summary)
 	_hud.set_message("%s complete." % GameMode.name_of(mode))
 	region_cleared.emit(summary)
 
@@ -1061,6 +1098,47 @@ func _bank_record() -> void:
 		_account.save()
 
 
+## How many pieces of AT LEAST this rarity were collected this run.
+##
+## "At least" rather than "exactly", because a quest for Rare gear is
+## satisfied by an Epic — a player who brings back something better and is
+## told it does not count has been punished for good luck.
+func _drops_at_least(rarity: int) -> int:
+	var n: int = 0
+	for r in _drops_by_rarity.keys():
+		if int(r) >= rarity:
+			n += int(_drops_by_rarity[r])
+	return n
+
+
+## Write the per-slot and per-rarity drop counts into [summary].
+##
+## WRITTEN IN ONE PLACE because there are two run endings — the campaign clear
+## and the mode run — and the first version of this spelled the keys out
+## inline in one of them only. A quest for boots was then completable from the
+## campaign and silently impossible from a gauntlet, which is not a bug a
+## player can report in any useful way: it just looks like bad luck.
+func _merge_drop_keys(summary: Dictionary) -> void:
+	for s in range(Item.Slot.size()):
+		summary["drops_slot_%d" % s] = int(_drops_by_slot.get(s, 0))
+	for r in range(Item.RARITY_NAMES.size()):
+		summary["drops_at_least_%d" % r] = _drops_at_least(r)
+
+
+## Let the quest board read the finished run, and report back what it finished.
+##
+## Done HERE, where the only complete picture of the run exists, rather than in
+## the shell: the shell sees the summary, but a quest advanced after the clear
+## screen has already been built cannot be shown on it.
+func _apply_quests(summary: Dictionary) -> void:
+	if _account == null:
+		return
+	var finished: PackedStringArray = _account.note_quest_run(summary)
+	summary["quests_done"] = finished
+	if not finished.is_empty():
+		_account.save()
+
+
 func _enemy_index(id: int) -> int:
 	for i in range(_enemy_ids.size()):
 		if _enemy_ids[i] == id:
@@ -1074,6 +1152,13 @@ func _enemy_index(id: int) -> int:
 func _on_loot_collected(text: String, drop: Loot.Drop) -> void:
 	if text != "":
 		_hud.set_message(text)
+	# COLLECTED, not dropped: "bring back" means it is in the stash, and a
+	# piece left glowing on the ground when the player walks out is not.
+	if drop.has_item():
+		var r: int = drop.item.rarity
+		_drops_by_rarity[r] = int(_drops_by_rarity.get(r, 0)) + 1
+		var sl: int = drop.item.slot
+		_drops_by_slot[sl] = int(_drops_by_slot.get(sl, 0)) + 1
 	Audio.play(Audio.Cue.CAST, 1.7)
 	_unsaved = true
 	# A rare-or-better piece is written out immediately. Everything else waits

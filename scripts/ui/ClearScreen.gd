@@ -140,6 +140,18 @@ func show_summary(summary: Dictionary) -> void:
 	_bar_from = float(maxi(cleared - 1, 0)) / float(total)
 	_bar_to = float(cleared) / float(total)
 
+	# CONTRACTS FINISHED BY THIS RUN. Said here, on the screen the player is
+	# already looking at, rather than left to be found later on the board: a
+	# reward nobody is told about is a reward nobody collects.
+	for line in _summary.get("quests_done", PackedStringArray()):
+		var qd := HeroTheme.label("CONTRACT COMPLETE — %s" % String(line),
+			HeroTheme.F_BODY, HeroTheme.ACCENT)
+		qd.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		qd.clip_text = true
+		qd.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		col.add_child(qd)
+		_rows.append(qd)
+
 	# The one-time payout for finishing a whole difficulty.
 	var crystals: int = int(_summary.get("crystals", 0))
 	if crystals > 0:

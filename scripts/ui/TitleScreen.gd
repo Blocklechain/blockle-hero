@@ -103,6 +103,9 @@ func build() -> void:
 		# The bench. On the title screen because the whole point is to
 		# collect on the way past, not to go looking for it.
 		_quick(quick, "Training", UiRoute.TRAINING, who)
+		# The board, next to the bench: both are things to check before a run
+		# rather than destinations of their own.
+		_quick(quick, "Contracts", UiRoute.QUESTS, who)
 
 	set_process(true)
 

@@ -4,6 +4,7 @@ extends RefCounted
 # Preloaded by path: a new class_name is absent from Godot's global cache
 # until the editor reimports, and the headless harnesses load this directly.
 const Training := preload("res://scripts/game/Training.gd")
+const Quest := preload("res://scripts/game/Quest.gd")
 # ------------------------------------------------------------------------------
 # The player's account: which champions they own, each one's own progression,
 # the shared stash, the wallet, and campaign unlocks.
@@ -191,6 +192,141 @@ func note_mode_run(key: String, reached: int) -> bool:
 		return false
 	mode_records[key] = reached
 	return true
+
+
+# ------------------------------------------------------------------------------
+# THE QUEST BOARD
+#
+# Three standing objectives. The board is a fixed size and refills: claiming a
+# quest replaces it, so there is always something on it and never a list that
+# grows into a chore.
+#
+# `quest_counter` only ever goes UP, and it is what seeds each offer. That is
+# what stops a player from closing the app to re-roll a board they do not like
+# — the replacement for quest 2 is the same quest whether they reload or not.
+# Re-rolling deliberately is a separate, allowed thing (`reroll_quest`), and it
+# costs the counter too, so it cannot be used to hunt for one specific offer
+# any faster than the board hands them out.
+# ------------------------------------------------------------------------------
+
+const QUEST_SLOTS: int = 3
+
+## Active quests, QUEST_SLOTS of them. Quest objects, never dictionaries, so
+## note_run() and the words live with the data.
+var quests: Array = []
+## Monotonic offer counter. Seeds every offer; never decreases.
+var quest_counter: int = 0
+var quest_seed: int = 0
+
+
+## How strong the account is, for scaling what a quest asks and pays.
+##
+## THE BEST CHAMPION, not the average and not the sum. "Overall hero levels"
+## could mean any of the three, and the average punishes a player for owning
+## champions — a 139-hero roster with one level-50 and 138 level-1s would be
+## offered beginner quests forever, which is exactly backwards.
+func power() -> int:
+	var best: int = 1
+	for h in owned.keys():
+		var p: HeroProgress = owned[h]
+		if p != null:
+			best = maxi(best, p.level)
+	return best
+
+
+## Fill any empty board slot. Safe to call repeatedly.
+func _ensure_quests() -> void:
+	while quests.size() < QUEST_SLOTS:
+		quests.append(null)
+	for i in range(QUEST_SLOTS):
+		if quests[i] == null:
+			quests[i] = _offer_quest()
+
+
+func _offer_quest() -> Quest:
+	quest_counter += 1
+	# Offered at the HIGHEST difficulty they have unlocked, because that is
+	# where their time is worth the most and where the gear they still need
+	# drops. furthest_unlocked() of that tier is what keeps it reachable.
+	var tier: int = clampi(unlocked_tier, 0, Campaign.tier_count() - 1)
+	return Quest.offer(quest_seed, quest_counter, tier,
+		furthest_unlocked(tier), power())
+
+
+func quest_board() -> Array:
+	_ensure_quests()
+	return quests
+
+
+func quest(index: int) -> Quest:
+	_ensure_quests()
+	if index < 0 or index >= quests.size():
+		return null
+	return quests[index]
+
+
+## Show a finished run to every quest. Returns the titles of the ones it
+## COMPLETED — not the ones it merely advanced — so a caller can say so
+## without diffing the board.
+func note_quest_run(summary: Dictionary) -> PackedStringArray:
+	_ensure_quests()
+	var done := PackedStringArray()
+	for q in quests:
+		var quest_obj := q as Quest
+		if quest_obj == null or quest_obj.is_complete():
+			continue
+		if quest_obj.note_run(summary) and quest_obj.is_complete():
+			done.append(quest_obj.title())
+	return done
+
+
+## Pay out a finished quest and replace it. Returns what was paid, or an empty
+## dictionary when there was nothing to pay.
+##
+## THE SLOT IS REPLACED, not just marked — a claimed quest that stayed on the
+## board would be a permanent dead row, and three of them would be a dead
+## board.
+func claim_quest(index: int) -> Dictionary:
+	var q: Quest = quest(index)
+	if q == null or not q.is_complete() or q.claimed:
+		return {}
+	q.claimed = true
+	if q.reward_gold > 0:
+		wallet.grant(Wallet.Kind.GOLD, q.reward_gold, "quest")
+	if q.reward_crystals > 0:
+		wallet.grant(Wallet.Kind.CRYSTALS, q.reward_crystals, "quest")
+	var paid: Dictionary = {
+		"title": q.title(),
+		"gold": q.reward_gold,
+		"crystals": q.reward_crystals,
+	}
+	quests[index] = _offer_quest()
+	return paid
+
+
+## Swap one quest for another. Free, and deliberately so: a board can offer a
+## Descent objective to someone who only plays the campaign, and charging to
+## escape that would be charging for our own bad draw. The counter still
+## advances, so this is not a re-roll slot machine.
+func reroll_quest(index: int) -> bool:
+	_ensure_quests()
+	if index < 0 or index >= quests.size():
+		return false
+	var q := quests[index] as Quest
+	# A FINISHED quest is not re-rollable — that would throw away the reward,
+	# and a mis-tap doing that is unforgivable.
+	if q != null and q.is_complete():
+		return false
+	quests[index] = _offer_quest()
+	return true
+
+
+func _quests_to_list() -> Array:
+	var out: Array = []
+	for q in quests:
+		var quest_obj := q as Quest
+		out.append(quest_obj.to_dict() if quest_obj != null else {})
+	return out
 var crystals_opened: int = 0
 
 ## StoreKit transaction ids that have already paid out, oldest first. THE
@@ -224,6 +360,11 @@ static func create(playable: PackedStringArray, seed: int = 20261119) -> Roster:
 	var r := Roster.new()
 	r.catalogue = playable
 	r.crystal_seed = seed
+	# A SEPARATE stream from crystals. Sharing one would mean drawing a quest
+	# advanced the crystal sequence, so opening a crystal after a quest would
+	# roll a different champion than opening it before — a reload-ordering
+	# dependency in the one system that must not have any.
+	r.quest_seed = seed ^ 0x51ED2701
 	for h in Champion.starters(playable):
 		r._grant_champion(h)
 	# A small float so the first merchant visit is not a locked door.
@@ -614,6 +755,9 @@ func to_dict() -> Dictionary:
 		"mode_records": mode_records,
 		"slots_unlocked": slots_unlocked,
 		"training": _training_to_list(),
+		"quests": _quests_to_list(),
+		"quest_counter": quest_counter,
+		"quest_seed": quest_seed,
 		"crystals_opened": crystals_opened,
 		"since_epic": crystals_since_epic,
 		"iap_txns": redeemed_txns,
@@ -671,6 +815,28 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 			r.training_slots.append(Training.Slot.from_dict(sl))
 	# A save from before training existed has none; the getter fills in.
 	r._ensure_slots()
+	r.quest_counter = maxi(int(d.get("quest_counter", 0)), 0)
+	# Falls back to the crystal seed rather than 0, so a save from before
+	# quests existed gets a seeded stream instead of a degenerate one.
+	r.quest_seed = int(d.get("quest_seed", r.crystal_seed))
+	for qd in d.get("quests", []):
+		# An empty dictionary is a slot that was empty when saved. Appending
+		# null rather than skipping keeps the INDICES stable, so a half-full
+		# board does not renumber itself and shift a half-finished quest into
+		# the row the player was about to claim.
+		if qd is Dictionary and not (qd as Dictionary).is_empty():
+			r.quests.append(Quest.from_dict(qd))
+		else:
+			r.quests.append(null)
+	# Trim a board saved when QUEST_SLOTS was larger: _ensure_quests only ever
+	# grows, so without this a shrunk board would keep the extras.
+	while r.quests.size() > QUEST_SLOTS:
+		r.quests.pop_back()
+	# NOT _ensure_quests() HERE. Filling the board needs `owned` and
+	# `cleared_maps`, which are loaded further down this function — calling it
+	# now would offer every reloaded save beginner quests off a power of 1 and
+	# a furthest-unlocked of 0. The getters fill it in lazily instead, by which
+	# time the roster is whole.
 	r.crystals_opened = int(d.get("crystals_opened", 0))
 	r.crystals_since_epic = int(d.get("since_epic", 0))
 	# JSON gives these back as an untyped Array of Variants, so they are copied
@@ -702,7 +868,26 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 	return r
 
 
+## A SCRATCH ACCOUNT THAT MUST NEVER REACH THE DISK.
+##
+## Play._resolve_roster() hands back a bare Roster when it is launched with no
+## account — from a harness, or from the editor with Play.tscn as the main
+## scene. Its comment said that account "is NEVER saved", and that was simply
+## not true: Play calls _account.save() on every clear, every wave and every
+## finished run, so an empty scratch roster was written straight over
+## user://roster.json. The symptom was a save with zero owned champions and
+## zero gold, which presents as an empty campaign list and a game that refuses
+## to launch anything — not as anything resembling "a test overwrote a file".
+##
+## The flag is on the ROSTER rather than a check inside Play, because there are
+## five save() call sites in Play alone and the next one added would not know
+## to ask.
+var ephemeral: bool = false
+
+
 func save() -> bool:
+	if ephemeral:
+		return true
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		push_error("Roster: cannot write " + SAVE_PATH)

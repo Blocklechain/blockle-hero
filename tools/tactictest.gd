@@ -139,42 +139,87 @@ func _go() -> void:
 	# hollow boosts landmarks, and in this harness's deliberately tiny 96-cell
 	# region a couple of obelisks are enough to box an archer in. The real
 	# 352-cell hollow has ample room; the test region does not.
+	# THE SEARCH HAS TO ASK FOR WHAT _retreat ACTUALLY NEEDS, which is less
+	# than it looks. The goal is `from + away * want` — measured from the
+	# THREAT, not from the archer — so with the threat 4 m behind it and
+	# want = 8, the archer is asked to walk 4 m. The first version of this
+	# demanded 13 m of clear line, found nowhere in a 96-cell region that
+	# satisfied it, never placed the archer at all, and then measured a boxed
+	# -in archer giving way zero times — while reporting PASS, because
+	# "it plants" is trivially true for something that cannot move.
+	#
+	# The threat is SYNTHESISED rather than taken from the champion, because
+	# _retreat takes a plain Vector2: that lets the retreat line be chosen to
+	# be clear instead of hoping the champion is standing somewhere useful.
 	var terrain: Terrain = play.get("_terrain")
+	var threat: Vector2 = me.ground_position()
+	var placed: bool = false
 	if terrain != null:
 		var path := Pathing.new(terrain)
-		var here: Vector2 = me.ground_position()
-		for step in range(24):
-			var ang: float = TAU * float(step) / 24.0
-			var dir := Vector2(cos(ang), sin(ang))
-			var stand: Vector2 = here + dir * 4.0
-			# Room for the whole 8m retreat the budget test asks for, plus a
-			# margin so the last step is not a coin flip.
-			var goal: Vector2 = here + dir * 13.0
-			if path.is_walkable(stand) and path.is_walkable(goal) \
-					and path.clear_line(stand, goal):
-				kiter._place(stand)
+		var here: Vector2 = kiter.ground_position()
+		# Several radii, because the open ground may not be adjacent.
+		for radius in [0.0, 3.0, 6.0, 9.0]:
+			for step in range(48):
+				var ang: float = TAU * float(step) / 48.0
+				var dir := Vector2(cos(ang), sin(ang))
+				var stand: Vector2 = here + dir * radius
+				if not path.is_walkable(stand):
+					continue
+				# The retreat line: 6 m of clear walkable ground beyond the
+				# archer, which is the 4 m it is asked for plus a margin so
+				# the last step is not a coin flip.
+				var goal: Vector2 = stand + dir * 6.0
+				if path.is_walkable(goal) and path.clear_line(stand, goal):
+					kiter._place(stand)
+					threat = stand - dir * 4.0
+					placed = true
+					break
+			if placed:
 				break
+	# SAID OUT LOUD. A harness that could not set up its own scenario must
+	# not go on to report that the thing it could not test is fine.
+	check("the archer can be stood somewhere with room behind it", placed,
+		"searched 4 radii x 48 angles")
 
 	kiter.set_meta("retreat_t", 0.0)
 	kiter.set_meta("hold_until", 0.0)
 	var gave_way: int = 0
 	var planted: bool = false
 	for i in range(12):
-		if play._retreat(kiter, me.ground_position(), 8.0):
+		if play._retreat(kiter, threat, 8.0):
 			gave_way += 1
 		else:
 			planted = true
 			break
+	check("...and it gave ground at all before planting", gave_way > 0,
+		"%d times" % gave_way)
 	check("...and it runs out of ground and plants", planted,
 		"gave way %d times, then held" % gave_way)
-	check("...for about the budget, not forever",
-		gave_way >= 3 and gave_way <= 8,
-		"%.1fs of budget at %.2fs a think" % [play.RETREAT_BUDGET,
-			play.THINK])
+	# ONLY THE UPPER BOUND IS A REAL INVARIANT.
+	#
+	# This asserted 3 <= gave_way <= 8 and failed about one run in three,
+	# because the LOWER bound is not a property of the budget at all — it is
+	# a property of how much open ground the generator happened to leave
+	# behind the archer. _retreat() returns false when the pathfinder cannot
+	# reach the goal, so "it stopped after two steps" can mean "the budget
+	# ran out" or "there is a rock there", and the test cannot tell which.
+	# Planting EARLY is correct behaviour; planting never is the bug.
+	#
+	# So the upper bound is checked against the simulation, and the budget
+	# arithmetic — which is what the lower bound was really reaching for — is
+	# checked as arithmetic, where no scenery can get at it.
+	var budget_thinks: int = int(ceil(play.RETREAT_BUDGET / play.THINK))
+	check("...for no longer than the budget allows",
+		gave_way <= budget_thinks + 1,
+		"gave way %d times, budget allows %d" % [gave_way, budget_thinks])
+	check("...and the budget is a few seconds of backing off, not one step",
+		budget_thinks >= 3 and budget_thinks <= 12,
+		"%.1fs of budget at %.2fs a think = %d steps"
+			% [play.RETREAT_BUDGET, play.THINK, budget_thinks])
 	# Having planted, it must stay planted for the rest — otherwise it
 	# alternates step-back/step-back and the chase never ends.
 	check("...and holds rather than immediately giving way again",
-		not play._retreat(kiter, me.ground_position(), 8.0))
+		not play._retreat(kiter, threat, 8.0))
 
 	print("\n=== a pack wakes together ===")
 	var packs: Dictionary = {}
