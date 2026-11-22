@@ -369,13 +369,47 @@ const RETREAT_REST: float = 4.0
 
 ## THE BOSS MECHANIC. A boss that is only bigger and tougher is an endurance
 ## test; one you have to read is a fight. It winds up a ground slam, the
-## ground tells you exactly where, and you have SLAM_WARN seconds to not be
-## standing there.
+## ground tells you exactly where, and slam_warn() seconds to not be standing
+## there — a window derived from how long leaving the circle actually takes,
+## not picked by feel. See below.
 const SLAM_RANGE: float = 16.0
 const SLAM_RADIUS: float = 6.5
-## Long enough to react to on a phone, short enough to be a threat.
-const SLAM_WARN: float = 1.15
 const SLAM_COOLDOWN: float = 7.0
+
+## THE WINDOW IS DERIVED, NOT PICKED, because the picked one was impossible.
+##
+## The slam is aimed where the champion is STANDING, so the player always
+## starts at dead centre and the worst case is the only case. Clearing
+## SLAM_RADIUS at RUN_SPEED takes 6.5 / 6.2 = 1.05s of pure running. The old
+## hand-tuned window was 1.15s, which left 0.1s to notice the ground light up
+## and push a virtual joystick — so "dodge the telegraph" was not a hard
+## mechanic, it was an unwinnable one wearing a mechanic's clothes. Every
+## player was eating it every time and concluding the boss just hits hard.
+##
+## So the window is computed from the geometry it has to beat:
+##
+##   warn = reaction + (radius / run speed) * margin
+##
+## Change the radius or the run speed and the window follows. slamtest.gd
+## asserts it stays survivable at every tier, so neither number can be tuned
+## into impossibility again.
+const SLAM_REACTION: float = 0.45
+## Headroom over the theoretical minimum: nobody runs the perfect radial line
+## out of a circle, and a thumb on glass is not a keyboard.
+const SLAM_ESCAPE_MARGIN: float = 1.35
+
+## Seconds of warning before the slam lands, for a difficulty tier.
+##
+## Harder tiers trim the margin — never the reaction time, and never below
+## the time it physically takes to leave the circle.
+static func slam_warn(tier: int) -> float:
+	var tiers: int = maxi(Campaign.tier_count() - 1, 1)
+	var hard: float = clampf(float(tier) / float(tiers), 0.0, 1.0)
+	# Full margin on the gentlest tier, two thirds of it on the harshest.
+	var margin: float = lerpf(SLAM_ESCAPE_MARGIN, SLAM_ESCAPE_MARGIN * 0.66,
+		hard)
+	var travel: float = SLAM_RADIUS / HeroController.RUN_SPEED
+	return SLAM_REACTION + travel * maxf(margin, 1.0)
 ## Multiplier on the boss's attack power. It hurts, because it is avoidable —
 ## an avoidable hit that tickles teaches the player to ignore it.
 const SLAM_POWER: float = 2.4
@@ -631,15 +665,17 @@ func _choose_action(foe: HeroController, gap: float) -> int:
 func _begin_slam(boss: HeroController, at: Vector2) -> void:
 	_slam_at = at
 	_slam_radius = SLAM_RADIUS
-	_slam_in = SLAM_WARN
+	_slam_in = slam_warn(tier)
 	_slam_damage = boss.body.attack_power() * SLAM_POWER
 	_slam_cd = SLAM_COOLDOWN
 	boss.stop()
 	# The wind-up animation is the boss's heaviest ability, so the body reads
 	# as doing something rather than standing still while the ground lights up.
 	boss.use_ability(2, at)
+	# The telegraph lasts exactly as long as the window, so what the player
+	# sees and what the game counts are the same number.
 	Vfx.telegraph(self, Vector3(at.x, boss.position.y + 0.05, at.y),
-		_slam_radius, SLAM_WARN)
+		_slam_radius, _slam_in)
 
 
 ## Run the wind-up down, and resolve it where it was aimed.
