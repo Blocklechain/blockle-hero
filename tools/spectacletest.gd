@@ -144,6 +144,23 @@ func _go() -> void:
 		dealt < me.body.max_health,
 		"%.0f of %.0f max" % [dealt, me.body.max_health])
 
+	# BACK TO FULL BEFORE TESTING THE DODGE.
+	#
+	# The champion has just deliberately stood in a slam, and has spent the
+	# whole wind-up inside the boss's melee reach taking ordinary swings.
+	# Whether they survive that is a question about attrition and frame
+	# pacing, not about the dodge — and the answer differs by machine: this
+	# passed locally at 62 HP left and DIED on CI, where the hero was at 0
+	# before the boss could wind up again, so the second slam never came and
+	# the dodge went untested for a reason that had nothing to do with
+	# dodging.
+	#
+	# Healing here keeps the next section measuring the thing it is named
+	# after. The survivability of the slam itself is already asserted above,
+	# against its own capped damage.
+	if me.body != null and me.body.alive:
+		me.body.health = me.body.max_health
+
 	# STEP OUT OF IT.
 	me.body.health = me.body.max_health
 	play.set("_slam_cd", 0.0)
