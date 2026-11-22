@@ -54,6 +54,11 @@ const CONTRIBUTION: float = 0.55
 ## is a partner that is never where the player needs it.
 const LEASH: float = 14.0
 
+## Distance the champion must travel before the formation re-orients. Without
+## a step like this the heading changes every frame and the stations spin
+## around the champion; with it they swing round once per step and settle.
+const HEADING_STEP: float = 2.0
+
 ## How close a partner tries to stay when there is nothing to fight. Not
 ## zero: three bodies standing on the player's feet hide the champion the
 ## player is actually driving, and on a phone that is the only thing on
@@ -80,14 +85,35 @@ static func cost_of(index: int) -> int:
 	return SLOT_COSTS[index]
 
 
-## Where partner [index] stands relative to a champion facing `facing`.
-static func station(index: int, leader: Vector2, facing: float) -> Vector2:
+## Where partner [index] stands, given where the champion is and which way the
+## party is heading. `heading` is a unit vector in GROUND space (x, z).
+##
+## TAKES A GROUND VECTOR, NOT THE CHAMPION'S Y-ROTATION, for two reasons and
+## both of them were bugs:
+##
+##   * Vector2.rotated() is a rotation of a 2D vector whose axes are (x, y).
+##     Ground space here is (x, z), where z runs the other way — so feeding
+##     it the champion's euler Y put the formation somewhere mirrored from
+##     where it reads on screen, and "behind you" was not behind you.
+##
+##   * The champion's facing changes every frame they turn, so a station
+##     derived from it ORBITS them. Partners then chase a point that is
+##     moving faster than they are and never arrive, which is most of what
+##     "the partners are glitchy" looked like. Play updates the heading only
+##     when the champion has actually travelled.
+##
+## FORMATION's y is along the heading (negative = behind) and x is lateral.
+static func station(index: int, leader: Vector2, heading: Vector2) -> Vector2:
 	if index < 0 or index >= FORMATION.size():
 		return leader
+	var fwd: Vector2 = heading
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector2(0.0, -1.0)
+	else:
+		fwd = fwd.normalized()
+	var side := Vector2(fwd.y, -fwd.x)
 	var off: Vector2 = FORMATION[index]
-	# Rotated with the champion so the formation reads as a formation rather
-	# than as three heroes who happen to be north-west of you.
-	return leader + off.rotated(facing)
+	return leader + side * off.x + fwd * off.y
 
 
 ## Scale a partner's body down to its contribution.

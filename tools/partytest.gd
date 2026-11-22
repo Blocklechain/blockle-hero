@@ -471,6 +471,44 @@ func _they_fight() -> void:
 	check("a partner engages an enemy the champion is standing next to",
 		engaged, "moving=%s used an ability=%s"
 			% [mate.is_moving(), bool(acted[0])])
+
+	# ---- AND IT ACTUALLY HURTS SOMETHING ------------------------------------
+	# THE ASSERTION THIS HARNESS WAS MISSING, and the omission shipped a
+	# partner that did literally zero damage for the entire life of the
+	# feature. Damage lands at the END of an animation, through
+	# HeroController.cast_landed — and partners were never connected to a
+	# resolver, so they swung, recovered, and hurt nothing. The old check
+	# watched `ability_used`, which fires on the WIND-UP and is therefore
+	# true for a partner whose swings go nowhere at all.
+	#
+	# A signal is not an effect. This watches the enemy's health.
+	var victim = foe
+	victim.body.health = victim.body.max_health
+	var hp_before: float = victim.body.health
+	mate._place(victim.ground_position() + Vector2(1.2, 0.0))
+	hero_node._place(victim.ground_position() + Vector2(2.0, 0.0))
+	var hurt: bool = false
+	for i in range(400):
+		play.call("_think_party")
+		await process_frame
+		if victim.body.health < hp_before - 0.01:
+			hurt = true
+			break
+	check("a partner's swing actually takes an enemy's health",
+		hurt, "%.1f -> %.1f hp" % [hp_before, victim.body.health])
+
+	# And the resolver is reachable for a partner at all, independently of
+	# whether the brain happened to pick that ability this run.
+	var direct = foes[0]
+	if direct != null and is_instance_valid(direct) and direct.body != null:
+		direct.body.health = direct.body.max_health
+		var before_direct: float = direct.body.health
+		mate._place(direct.ground_position() + Vector2(1.0, 0.0))
+		mate.set_meta("aim", direct.ground_position())
+		play.call("_on_ally_cast", mate.basic, mate)
+		check("the ally cast resolver hurts enemies when a PARTNER casts",
+			direct.body.health < before_direct,
+			"%.1f -> %.1f hp" % [before_direct, direct.body.health])
 	# AND IT USES ITS WHOLE KIT. _choose_action, the ENEMY chooser, caps the
 	# kit by Campaign.enemy_actions(tier) — a partner pointed at it fought
 	# with one ability on Normal and three on Merciless, their kit getting

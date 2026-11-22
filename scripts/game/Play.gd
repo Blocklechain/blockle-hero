@@ -156,6 +156,11 @@ var _next_enemy_id: int = 1
 ## list: the enemy arrays are compacted as corpses are pruned, and a party
 ## that lived in them would be pruned too.
 var _party: Array[HeroController] = []
+## Which way the party is facing, in ground space, and where the champion was
+## when it was last recomputed. See Party.station() for why this is not read
+## off the champion's rotation every tick.
+var _party_heading: Vector2 = Vector2(0.0, -1.0)
+var _heading_from: Vector2 = Vector2.INF
 
 
 func _ready() -> void:
@@ -734,7 +739,7 @@ func _spawn_party(ter: Terrain, at: Vector2, leader: String) -> void:
 	var who_list: PackedStringArray = _account.companions(leader)
 	for i in range(who_list.size()):
 		var who: String = who_list[i]
-		var want: Vector2 = Party.station(i, at, 0.0)
+		var want: Vector2 = Party.station(i, at, _party_heading)
 		# A station inside a rock is a partner that cannot be placed at all,
 		# so fall back to the champion's own cell rather than skipping them:
 		# a missing partner is a far worse bug than two heroes standing close.
@@ -750,6 +755,11 @@ func _spawn_party(ter: Terrain, at: Vector2, leader: String) -> void:
 			champion_level, Rng.seed_of(world_seed, who), ChampionName.of(who))
 		Party.weaken(body)
 		mate.setup_combat(body, HeroClass.for_hero(who), who)
+		# THE CONNECTION THAT MAKES A PARTNER DANGEROUS. Damage lands at the
+		# END of an animation (HeroController._on_rig_state_finished), so a
+		# controller whose cast_landed goes nowhere swings, recovers, and
+		# hurts nothing at all.
+		mate.cast_landed.connect(_on_ally_cast.bind(mate))
 		# STAMPED, so _think can tell a partner from the champion without
 		# searching _party every tick, and so the stand-off is computed once.
 		mate.set_meta("is_partner", true)
@@ -816,6 +826,13 @@ func _think_party() -> void:
 	if _party.is_empty() or _hero == null:
 		return
 	var leader: Vector2 = _hero.ground_position()
+	# The formation turns with where the champion is GOING, recomputed only
+	# once they have actually covered some ground.
+	if _heading_from == Vector2.INF:
+		_heading_from = leader
+	elif leader.distance_to(_heading_from) >= Party.HEADING_STEP:
+		_party_heading = (leader - _heading_from).normalized()
+		_heading_from = leader
 	for mate in _party:
 		if mate == null or not is_instance_valid(mate) or mate.is_dead():
 			continue
@@ -829,11 +846,16 @@ func _think_party() -> void:
 			# scattered during a fight regroups instead of walking back to
 			# where the fight started.
 			var station: Vector2 = Party.station(
-				int(mate.get_meta("partner_slot", 0)), leader, _hero.rotation.y)
-			if mate.ground_position().distance_to(station) > Party.FOLLOW_GAP:
+				int(mate.get_meta("partner_slot", 0)), leader, _party_heading)
+			var away: float = mate.ground_position().distance_to(station)
+			# HYSTERESIS. One threshold makes a partner sitting exactly at the
+			# gap start and stop on alternate ticks, which is a visible
+			# twitch three times over. It sets off at FOLLOW_GAP and does not
+			# settle until it is well inside.
+			if away > Party.FOLLOW_GAP:
 				if not mate.is_moving():
 					mate.move_to(station, true)
-			elif mate.is_moving():
+			elif away < Party.FOLLOW_GAP * 0.55 and mate.is_moving():
 				mate.stop()
 			continue
 
@@ -841,13 +863,21 @@ func _think_party() -> void:
 		var gap: float = mate.ground_position().distance_to(aim)
 		var stand: float = float(mate.get_meta("stand_off", REACH))
 		if gap > stand:
-			if not mate.is_moving():
-				mate.move_to(aim, true)
+			# RE-PATHS WHEN THE TARGET HAS MOVED. "Only if not already
+			# moving" means a partner walks to where an enemy USED to be and
+			# then starts again from there, which against anything that kites
+			# is an endless stutter one step behind.
+			var going_to: Vector2 = mate.get_meta("chasing", Vector2.INF)
+			if not mate.is_moving() or going_to == Vector2.INF \
+					or going_to.distance_to(aim) > stand * 0.5:
+				if mate.move_to(aim, true):
+					mate.set_meta("chasing", aim)
 			continue
 		if gap < stand * KITE_INNER and stand > REACH * 2.0:
 			if _retreat(mate, aim, stand):
 				continue
 		mate.stop()
+		mate.set_meta("aim", aim)
 		mate.use_ability(_partner_action(mate, gap), aim)
 
 
@@ -927,7 +957,7 @@ func _revive_party() -> void:
 		mate.revive()
 		if _hero != null:
 			mate._place(Party.station(int(mate.get_meta("partner_slot", 0)),
-				_hero.ground_position(), _hero.rotation.y))
+				_hero.ground_position(), _party_heading))
 
 
 ## How far from the champion this enemy wants to be.
@@ -1501,18 +1531,38 @@ func _enemy_context() -> Dictionary:
 ## Resolve a cast at the moment it LANDS, which is the end of the animation —
 ## see HeroController.cast_landed. Pressing the key only starts the swing.
 func _on_cast_landed(ability: Ability) -> void:
-	if _hero == null or _hero.body == null:
+	_on_ally_cast(ability, _hero)
+
+
+## A CAST BY ANYONE ON THE PLAYER'S SIDE lands on the enemies.
+##
+## This was written for the champion alone and PARTNERS WERE NEVER CONNECTED
+## TO IT. A partner chose an ability, played the animation, cleared its
+## pending cast and emitted cast_landed into nothing — so for the whole life
+## of the feature a partner did exactly zero damage. Nothing errored, nothing
+## logged, and partytest passed because it asserted that `ability_used` was
+## EMITTED rather than that anything was hurt. Signals are not effects.
+##
+## Generalised rather than copied, so there is one resolver for the player's
+## side and a third ally cannot be added without going through it.
+func _on_ally_cast(ability: Ability, who: HeroController) -> void:
+	if who == null or not is_instance_valid(who) or who.body == null:
 		return
 	var env: Dictionary = _enemy_context()
 	var ctx := Combat.Context.new()
-	ctx.caster = _hero.body
-	ctx.origin = _hero.ground_position()
-	ctx.facing = _hero.rotation.y
+	ctx.caster = who.body
+	ctx.origin = who.ground_position()
+	ctx.facing = who.rotation.y
 	ctx.targets = env["bodies"]
 	ctx.positions = env["points"]
 	var r: Combat.Result = Combat.cast(ability, ctx)
-	_show_cast(ability, _hero, _aim_point())
-	_show_impacts(r, ability, _hero)
+	# The champion aims at whatever it can reach; a partner already chose a
+	# target and stamped it, so the effect plays toward the thing it swung at
+	# rather than toward the champion's pick.
+	var at: Vector2 = _aim_point() if who == _hero \
+		else who.get_meta("aim", _aim_point())
+	_show_cast(ability, who, at)
+	_show_impacts(r, ability, who)
 
 
 ## The nearest living enemy's ground position, or Vector2.INF. Used to turn the
