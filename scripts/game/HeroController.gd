@@ -607,6 +607,28 @@ func _on_body_died() -> void:
 	champion_died.emit()
 
 
+## Put this champion back on its feet with the body it has now.
+##
+## DEATH IS TWO LATCHES, not one: `_dead` here and `is_dead` on the rig. A
+## revive that cleared only the body's health left both set, so the champion
+## stood there at full health, inert, taking no orders and animating nothing
+## — which is exactly what the first version of the party revive did, and it
+## reported a healthy partner while leaving a statue on the field.
+##
+## Only Play's between-waves party revive calls this. Nothing revives an
+## enemy, and nothing revives the player's own champion: a run that ends in
+## death is supposed to end.
+func revive() -> void:
+	if not _dead:
+		return
+	_dead = false
+	_busy_until = 0.0
+	pending_cast = null
+	stop()
+	if rig != null:
+		rig.revive()
+
+
 # ------------------------------------------------------------------------------
 # Debug
 # ------------------------------------------------------------------------------

@@ -7,6 +7,7 @@ extends Node
 const GameMode := preload("res://scripts/game/GameMode.gd")
 const TrainingScreen := preload("res://scripts/ui/TrainingScreen.gd")
 const QuestScreen := preload("res://scripts/ui/QuestScreen.gd")
+const PartyScreen := preload("res://scripts/ui/PartyScreen.gd")
 # ------------------------------------------------------------------------------
 # THE MENU SHELL: the thing that makes the rest of the game reachable.
 #
@@ -275,6 +276,7 @@ func _make_screen(route: String) -> UiScreen:
 		UiRoute.CAMPAIGN: return CampaignScreen.new()
 		UiRoute.TRAINING: return TrainingScreen.new()
 		UiRoute.QUESTS: return QuestScreen.new()
+		UiRoute.PARTY: return PartyScreen.new()
 	push_error("UiShell: no screen for route '%s'" % route)
 	return null
 

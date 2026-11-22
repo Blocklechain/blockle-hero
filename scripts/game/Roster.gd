@@ -5,6 +5,7 @@ extends RefCounted
 # until the editor reimports, and the headless harnesses load this directly.
 const Training := preload("res://scripts/game/Training.gd")
 const Quest := preload("res://scripts/game/Quest.gd")
+const Party := preload("res://scripts/game/Party.gd")
 # ------------------------------------------------------------------------------
 # The player's account: which champions they own, each one's own progression,
 # the shared stash, the wallet, and campaign unlocks.
@@ -319,6 +320,91 @@ func reroll_quest(index: int) -> bool:
 		return false
 	quests[index] = _offer_quest()
 	return true
+
+
+# ------------------------------------------------------------------------------
+# THE PARTY — up to three more of the player's own champions, fighting
+# alongside the one they are driving. See Party.gd for why they fight at a
+# fraction of their strength and why they are targetable.
+# ------------------------------------------------------------------------------
+
+## Partner slots, by index. "" is an empty slot. Always SLOTS_MAX long.
+var party: PackedStringArray = PackedStringArray()
+## How many slots have been paid for. The first is free.
+var party_unlocked: int = 1
+
+
+func _ensure_party() -> void:
+	while party.size() < Party.SLOTS_MAX:
+		party.append("")
+
+
+func party_slot(index: int) -> String:
+	_ensure_party()
+	if index < 0 or index >= party.size():
+		return ""
+	return party[index]
+
+
+func party_slot_is_unlocked(index: int) -> bool:
+	return index >= 0 and index < party_unlocked
+
+
+func unlock_party_slot() -> bool:
+	if party_unlocked >= Party.SLOTS_MAX:
+		return false
+	var cost: int = Party.cost_of(party_unlocked)
+	if cost > 0 and not wallet.spend(Wallet.Kind.GOLD, cost, "partner slot"):
+		return false
+	party_unlocked += 1
+	_ensure_party()
+	return true
+
+
+## Put a champion in a partner slot.
+##
+## REFUSES A DUPLICATE, including the champion currently being played — which
+## the caller passes as [leader]. The same hero in two bodies would be two
+## copies of one HeroProgress levelling in parallel and one of the two writes
+## winning, and on screen it is simply two of the same model.
+func set_companion(index: int, who: String, leader: String = "") -> bool:
+	_ensure_party()
+	if not party_slot_is_unlocked(index) or not owns(who):
+		return false
+	if who == leader:
+		return false
+	for i in range(party.size()):
+		if i != index and party[i] == who:
+			return false
+	party[index] = who
+	return true
+
+
+func clear_companion(index: int) -> bool:
+	_ensure_party()
+	if index < 0 or index >= party.size() or party[index].is_empty():
+		return false
+	party[index] = ""
+	return true
+
+
+## The champions who will actually take the field, in slot order.
+##
+## FILTERED HERE, at the single point every caller reads, rather than trusted
+## from the save. A slot can name a champion who is not owned (a save edited,
+## or a champion the catalogue stopped handing out) or the hero now being
+## played — and Play must never be handed either.
+func companions(leader: String = "") -> PackedStringArray:
+	_ensure_party()
+	var out := PackedStringArray()
+	for i in range(mini(party_unlocked, party.size())):
+		var who: String = party[i]
+		if who.is_empty() or who == leader or not owns(who):
+			continue
+		if out.has(who):
+			continue
+		out.append(who)
+	return out
 
 
 func _quests_to_list() -> Array:
@@ -756,6 +842,8 @@ func to_dict() -> Dictionary:
 		"slots_unlocked": slots_unlocked,
 		"training": _training_to_list(),
 		"quests": _quests_to_list(),
+		"party": party,
+		"party_unlocked": party_unlocked,
 		"quest_counter": quest_counter,
 		"quest_seed": quest_seed,
 		"crystals_opened": crystals_opened,
@@ -815,6 +903,17 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 			r.training_slots.append(Training.Slot.from_dict(sl))
 	# A save from before training existed has none; the getter fills in.
 	r._ensure_slots()
+	r.party_unlocked = clampi(int(d.get("party_unlocked", 1)), 1,
+		Party.SLOTS_MAX)
+	for who in d.get("party", []):
+		r.party.append(String(who))
+	# Trim a save written when there were more slots, then pad. companions()
+	# filters what is left against ownership, so a slot naming a champion
+	# this save no longer owns is dropped at the point of use rather than
+	# silently turning into a missing partner on the field.
+	while r.party.size() > Party.SLOTS_MAX:
+		r.party.remove_at(r.party.size() - 1)
+	r._ensure_party()
 	r.quest_counter = maxi(int(d.get("quest_counter", 0)), 0)
 	# Falls back to the crystal seed rather than 0, so a save from before
 	# quests existed gets a seeded stream instead of a degenerate one.

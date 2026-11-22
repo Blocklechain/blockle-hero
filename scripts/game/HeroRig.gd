@@ -463,6 +463,22 @@ func kill() -> void:
 	set_state(State.DEATH, true)
 
 
+## Undo the latch, so this rig can animate again.
+##
+## The OPPOSITE of kill(), and it has to be here rather than done by poking
+## `is_dead` from outside: the latch exists precisely so that nothing can
+## animate a corpse back to its feet, and a caller that could clear it by
+## hand would be a caller that could clear it by accident. Only Play's
+## between-waves party revive uses this — nothing brings an ENEMY back.
+func revive() -> void:
+	if not is_dead:
+		return
+	is_dead = false
+	_recoil_left = 0.0
+	_set_flash(0.0)
+	set_state(State.IDLE, true)
+
+
 func _process(delta: float) -> void:
 	_t += delta
 	if _oneshot_left > 0.0:

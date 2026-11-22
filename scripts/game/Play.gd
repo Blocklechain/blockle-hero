@@ -6,6 +6,7 @@ extends Node3D
 # opened the project. A preload resolves by path and has no such dependency.
 const MapShape := preload("res://scripts/game/MapShape.gd")
 const GameMode := preload("res://scripts/game/GameMode.gd")
+const Party := preload("res://scripts/game/Party.gd")
 # ------------------------------------------------------------------------------
 # The playable slice: generate a region on the background thread, drop a hero in
 # it, and let the player fight in it.
@@ -146,6 +147,15 @@ var _enemy_nodes: Array[Node3D] = []
 ## time it died — or nothing at all.
 var _enemy_ids: PackedInt32Array = PackedInt32Array()
 var _next_enemy_id: int = 1
+
+## THE PARTY — up to three more of the player's own champions, fighting
+## alongside the one being driven. See Party.gd for why they fight at a
+## fraction of their strength and why enemies are allowed to kill them.
+##
+## NOT in _enemy_nodes, obviously, but also not merged into one "combatants"
+## list: the enemy arrays are compacted as corpses are pruned, and a party
+## that lived in them would be pruned too.
+var _party: Array[HeroController] = []
 
 
 func _ready() -> void:
@@ -309,6 +319,10 @@ func _on_world_ready(root: Node3D, ter: Terrain, plan: Layout) -> void:
 	_terrain = ter
 	_plan = plan
 	_player_hero = pick
+	# BEFORE _populate, so the encounter builder places its packs relative to
+	# a party that already exists rather than to a lone champion who is about
+	# to be joined by three more bodies.
+	_spawn_party(ter, at, pick)
 	_populate(ter, plan, at, pick, 0)
 
 	var rigged: String = "rigged" if _hero.rig.is_rigged else "STATIC (procedural stand-in)"
@@ -616,6 +630,9 @@ func _think(delta: float) -> void:
 	if _brain_t > 0.0:
 		return
 	_brain_t = THINK
+	# The party thinks on the same clock as the enemies, so a partner never
+	# gets a free extra action per frame relative to what it is fighting.
+	_think_party()
 	# Cooled down on the brain's clock, which is also the clock the slam is
 	# resolved on — see _advance_slam, called every frame from _process.
 	pass
@@ -634,8 +651,14 @@ func _think(delta: float) -> void:
 		var pack: int = int(w.get_meta("pack", -1))
 		if pack < 0 or _awake.has(pack):
 			continue
-		if w.ground_position().distance_to(here) <= AGGRO:
-			_awake[pack] = true
+		# ANY member of the party walking into range wakes the pack, not just
+		# the champion — a partner sent ahead is still someone walking into
+		# the room.
+		for member in _living_party():
+			if w.ground_position().distance_to(
+					member.ground_position()) <= AGGRO:
+				_awake[pack] = true
+				break
 
 	for n in _enemy_nodes:
 		var foe := n as HeroController
@@ -644,7 +667,14 @@ func _think(delta: float) -> void:
 		if foe.is_busy() or foe.is_stunned():
 			continue
 		var at: Vector2 = foe.ground_position()
-		var gap: float = at.distance_to(here)
+		# WHO THIS ONE IS COMING FOR. The nearest member of the party, which
+		# with no partners is simply the champion — so the single-hero fight
+		# is bit-for-bit what it was. See _threat_for().
+		var mark: HeroController = _threat_for(foe)
+		if mark == null:
+			continue
+		var aim: Vector2 = mark.ground_position()
+		var gap: float = at.distance_to(aim)
 		var is_boss: bool = foe.scale.y >= Encounter.BOSS_SIZE - 0.001
 		var notice: float = AGGRO_BOSS if is_boss else AGGRO
 		# Awake because a packmate saw you, or because this one did.
@@ -656,7 +686,7 @@ func _think(delta: float) -> void:
 			continue
 
 		if is_boss and _slam_cd <= 0.0 and gap <= SLAM_RANGE:
-			_begin_slam(foe, here)
+			_begin_slam(foe, aim)
 			continue
 
 		# IT FIGHTS LIKE WHAT IT IS. Every enemy used to walk into melee range
@@ -668,16 +698,236 @@ func _think(delta: float) -> void:
 			# Back at a comfortable distance: it has earned its footing back.
 			foe.set_meta("retreat_t", 0.0)
 			if not foe.is_moving():
-				foe.move_to(here, true)
+				foe.move_to(aim, true)
 			continue
 		if gap < stand * KITE_INNER and stand > REACH * 2.0:
 			# Too close for what it does. Back off rather than trade punches
 			# it is not built to win — but only while it has ground to give.
 			# A cornered archer is a fight, not a chase.
-			if _retreat(foe, here, stand):
+			if _retreat(foe, aim, stand):
 				continue
 		foe.stop()
-		foe.use_ability(_choose_action(foe, gap), here)
+		# THE TARGET IS REMEMBERED for the cast, because _on_enemy_cast runs
+		# a frame or more later from the animation and would otherwise resolve
+		# against whoever is nearest THEN. An enemy that winds up on a partner
+		# and lands on the player is the kind of damage nobody can account
+		# for.
+		foe.set_meta("mark", mark)
+		foe.use_ability(_choose_action(foe, gap), aim)
+
+
+# ------------------------------------------------------------------------------
+# THE PARTY
+# ------------------------------------------------------------------------------
+
+## Put the player's partners on the field beside them.
+##
+## They are built exactly like the champion — Combat.champion_body, so their
+## real level, their real stats and THEIR OWN EQUIPPED GEAR all come along —
+## and then weakened to their contribution. A partner assembled any other way
+## would be a different character from the one on the roster screen, which is
+## the whole thing this feature is selling.
+func _spawn_party(ter: Terrain, at: Vector2, leader: String) -> void:
+	if _account == null or ter == null:
+		return
+	var pathing := Pathing.new(ter)
+	var who_list: PackedStringArray = _account.companions(leader)
+	for i in range(who_list.size()):
+		var who: String = who_list[i]
+		var want: Vector2 = Party.station(i, at, 0.0)
+		# A station inside a rock is a partner that cannot be placed at all,
+		# so fall back to the champion's own cell rather than skipping them:
+		# a missing partner is a far worse bug than two heroes standing close.
+		if not pathing.is_walkable(want):
+			want = at
+		var mate := HeroController.new()
+		add_child(mate)
+		if not mate.setup(ter, who, want):
+			# One unloadable rig must not take the rest of the party with it.
+			mate.queue_free()
+			continue
+		var body: Combatant = Combat.champion_body(_account, who,
+			champion_level, Rng.seed_of(world_seed, who), ChampionName.of(who))
+		Party.weaken(body)
+		mate.setup_combat(body, HeroClass.for_hero(who), who)
+		# STAMPED, so _think can tell a partner from the champion without
+		# searching _party every tick, and so the stand-off is computed once.
+		mate.set_meta("is_partner", true)
+		mate.set_meta("partner_slot", i)
+		mate.set_meta("stand_off", _partner_stand_off(mate, who))
+		_party.append(mate)
+	if not _party.is_empty():
+		print("party: %d partner(s) at x%.2f" % [_party.size(),
+			Party.CONTRIBUTION])
+
+
+## How far a partner wants to be from what it is hitting. Same rule the
+## enemies use, so a partner Ranger kites and a partner Fighter closes.
+func _partner_stand_off(mate: HeroController, who: String) -> float:
+	if HeroClass.school_of(HeroClass.for_hero(who)) == HeroClass.School.MELEE:
+		return REACH
+	var longest: float = REACH
+	for slot in range(1, 4):
+		var ab: Ability = mate.ability_in_slot(slot)
+		if ab != null and ab.shape != Ability.Shape.SELF:
+			longest = maxf(longest, ab.range_m)
+	return maxf(REACH, longest * STAND_FRACTION)
+
+
+## Every member of the party still standing, champion first.
+##
+## CHAMPION FIRST, because this is what enemies pick their target from: an
+## ordering accident here is the difference between "enemies come for whoever
+## is closest" and "enemies ignore the player".
+func _living_party() -> Array[HeroController]:
+	var out: Array[HeroController] = []
+	if _hero != null and not _hero.is_dead():
+		out.append(_hero)
+	for mate in _party:
+		if mate != null and is_instance_valid(mate) and not mate.is_dead():
+			out.append(mate)
+	return out
+
+
+## Who this enemy is coming for.
+##
+## THE NEAREST MEMBER OF THE PARTY, not the player. Without this, partners are
+## three free damage dealers that nothing can touch, the player can stand
+## behind them, and an encounter built for one champion is a formality. It is
+## also what makes a partner's position mean something: putting one in front
+## is a real decision with a real cost.
+func _threat_for(foe: HeroController) -> HeroController:
+	var party: Array[HeroController] = _living_party()
+	if party.is_empty():
+		return null
+	var at: Vector2 = foe.ground_position()
+	var best: HeroController = party[0]
+	var best_gap: float = at.distance_to(best.ground_position())
+	for i in range(1, party.size()):
+		var gap: float = at.distance_to(party[i].ground_position())
+		if gap < best_gap:
+			best_gap = gap
+			best = party[i]
+	return best
+
+
+## Partners pick a fight, or come back to the champion.
+func _think_party() -> void:
+	if _party.is_empty() or _hero == null:
+		return
+	var leader: Vector2 = _hero.ground_position()
+	for mate in _party:
+		if mate == null or not is_instance_valid(mate) or mate.is_dead():
+			continue
+		if mate.body == null or mate.is_busy() or mate.is_stunned():
+			continue
+
+		var target: HeroController = _partner_target(mate, leader)
+		if target == null:
+			# NOTHING TO FIGHT: fall in beside the champion. Measured from the
+			# CHAMPION rather than from a fixed station, so a party that has
+			# scattered during a fight regroups instead of walking back to
+			# where the fight started.
+			var station: Vector2 = Party.station(
+				int(mate.get_meta("partner_slot", 0)), leader, _hero.rotation.y)
+			if mate.ground_position().distance_to(station) > Party.FOLLOW_GAP:
+				if not mate.is_moving():
+					mate.move_to(station, true)
+			elif mate.is_moving():
+				mate.stop()
+			continue
+
+		var aim: Vector2 = target.ground_position()
+		var gap: float = mate.ground_position().distance_to(aim)
+		var stand: float = float(mate.get_meta("stand_off", REACH))
+		if gap > stand:
+			if not mate.is_moving():
+				mate.move_to(aim, true)
+			continue
+		if gap < stand * KITE_INNER and stand > REACH * 2.0:
+			if _retreat(mate, aim, stand):
+				continue
+		mate.stop()
+		mate.use_ability(_partner_action(mate, gap), aim)
+
+
+## Which ability a partner uses.
+##
+## NOT _choose_action, which is the ENEMY chooser: that one caps the kit by
+## Campaign.enemy_actions(tier), because an enemy on Normal is deliberately
+## allowed fewer abilities than the same enemy on Oblivion. Pointing a
+## partner at it meant the player's own level-40 champion fought with one
+## ability on Normal and three on Merciless — their kit getting BETTER as the
+## game got harder, for no reason anyone could discover.
+##
+## A partner is the player's champion and uses everything it has.
+func _partner_action(mate: HeroController, gap: float) -> int:
+	for slot in range(3, 0, -1):
+		var ab: Ability = mate.ability_in_slot(slot)
+		if ab == null or mate.cooldown_left(slot) > 0.0:
+			continue
+		# A short-ranged ability thrown across the field whiffs and puts
+		# itself on cooldown for nothing.
+		if ab.shape != Ability.Shape.SELF and gap > ab.range_m:
+			continue
+		return slot
+	# Slot 0 is the basic attack, which has no cooldown and always connects
+	# at the range the stand-off already put them at.
+	return 0
+
+
+## The enemy a partner should go for, or null to regroup.
+##
+## LEASHED TO THE CHAMPION, not to the partner. A partner leashed to itself
+## walks one enemy at a time across the whole map and is never where the
+## player needs it; leashed to the champion it fights what the player has
+## walked into and nothing else.
+func _partner_target(mate: HeroController, leader: Vector2) -> HeroController:
+	var best: HeroController = null
+	var best_gap: float = INF
+	for n in _enemy_nodes:
+		var foe := n as HeroController
+		if foe == null or foe.is_dead() or foe.body == null:
+			continue
+		var at: Vector2 = foe.ground_position()
+		if at.distance_to(leader) > Party.LEASH:
+			continue
+		var gap: float = at.distance_to(mate.ground_position())
+		if gap < best_gap:
+			best_gap = gap
+			best = foe
+	return best
+
+
+## Get the party back on its feet for a new wave.
+##
+## A PARTNER IS DOWN FOR THE WAVE, NOT THE RUN. Permanent death in a game
+## whose premise is a collection of champions makes the correct play "never
+## field the ones you like"; a partner who pops straight back up is not a
+## cost at all. The wave boundary is the one line that is neither.
+func _revive_party() -> void:
+	for mate in _party:
+		if mate == null or not is_instance_valid(mate) or mate.body == null:
+			continue
+		if not mate.is_dead():
+			continue
+		# Rebuilt rather than healed: a HeroController that has played its
+		# death animation and started its corpse timer cannot be un-killed,
+		# so the body is replaced and the node re-placed.
+		var who: String = mate.rig.hero_name if mate.rig != null else ""
+		if who.is_empty():
+			continue
+		var fresh: Combatant = Combat.champion_body(_account, who,
+			champion_level, Rng.seed_of(world_seed, who), ChampionName.of(who))
+		Party.weaken(fresh)
+		mate.setup_combat(fresh, HeroClass.for_hero(who), who)
+		# AND CLEAR THE DEATH LATCHES. setup_combat gives it a living body;
+		# it does not un-kill the controller or the rig, so without this the
+		# partner stands there at full health and does nothing at all.
+		mate.revive()
+		if _hero != null:
+			mate._place(Party.station(int(mate.get_meta("partner_slot", 0)),
+				_hero.ground_position(), _hero.rotation.y))
 
 
 ## How far from the champion this enemy wants to be.
@@ -805,13 +1055,20 @@ func _on_enemy_cast(ability: Ability, foe: HeroController) -> void:
 	ctx.caster = foe.body
 	ctx.origin = foe.ground_position()
 	ctx.facing = foe.rotation.y
-	var targets: Array[Combatant] = [_hero.body]
+	# THE TARGET IT WOUND UP ON, not whoever is nearest now. _think stamps
+	# "mark" before the cast; a cast with no mark — the auto-attack path, or a
+	# partner who died mid-animation — falls back to the champion.
+	var mark := foe.get_meta("mark", null) as HeroController
+	if mark == null or not is_instance_valid(mark) or mark.is_dead() \
+			or mark.body == null:
+		mark = _hero
+	var targets: Array[Combatant] = [mark.body]
 	ctx.targets = targets
-	ctx.positions = PackedVector2Array([_hero.ground_position()])
+	ctx.positions = PackedVector2Array([mark.ground_position()])
 	var r: Combat.Result = Combat.cast(ability, ctx)
 	Elite.on_hit(int(foe.get_meta("trait", Elite.Trait.NONE)),
-		foe.body, _hero.body)
-	_show_cast(ability, foe, _hero.ground_position())
+		foe.body, mark.body)
+	_show_cast(ability, foe, mark.ground_position())
 	_show_impacts(r, ability, foe)
 
 
@@ -946,7 +1203,43 @@ func _on_enemy_died(id: int) -> void:
 ## The live body is levelled too, not just the save. A level that only appears
 ## after you walk back to the menu is a level the player does not connect to
 ## the kill that earned it.
+## Pay the partners for a kill they were present for.
+##
+## THEY HAVE TO LEVEL. Without this the only correct party is the three
+## champions who are already highest, and a feature meant to make a 139-hero
+## roster worth owning would instead make three heroes matter and 136 not.
+## Less than the champion earns (Party.XP_SHARE), because the player is the
+## one playing.
+##
+## A PARTNER WHO IS DOWN EARNS NOTHING, which is the only cost of letting one
+## die — and the reason positioning is worth anything.
+##
+## The live body is NOT re-derived at the new level, unlike the champion's. A
+## partner's numbers are visible only through how fast things die next to the
+## player, so a mid-fight stat refresh would be invisible, and the next run
+## builds them from the save anyway.
+func _award_party_xp() -> void:
+	if _party.is_empty() or _account == null:
+		return
+	var share: float = Campaign.xp_per_kill(region_index, tier) \
+		* Party.XP_SHARE
+	if share <= 0.0:
+		return
+	for mate in _party:
+		if mate == null or not is_instance_valid(mate) or mate.is_dead():
+			continue
+		if mate.rig == null:
+			continue
+		var p: HeroProgress = _account.progress(mate.rig.hero_name)
+		if p == null:
+			continue
+		if p.gain_xp(share) > 0:
+			_hud.set_message("%s reaches level %d."
+				% [ChampionName.of(mate.rig.hero_name), p.level])
+
+
 func _award_xp() -> void:
+	_award_party_xp()
 	if _hero == null or _hero.rig == null:
 		return
 	var who: String = _hero.rig.hero_name
@@ -1040,6 +1333,8 @@ func _next_wave() -> void:
 	_awake.clear()
 	_slam_at = Vector2.INF
 	_slam_cd = 0.0
+	# Partners get up between waves. See _revive_party.
+	_revive_party()
 
 	var here: Vector2 = _hero.ground_position()
 	_populate(_terrain, _plan, here, _player_hero, _wave)

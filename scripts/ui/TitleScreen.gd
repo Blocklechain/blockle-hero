@@ -106,6 +106,9 @@ func build() -> void:
 		# The board, next to the bench: both are things to check before a run
 		# rather than destinations of their own.
 		_quick(quick, "Contracts", UiRoute.QUESTS, who)
+		# Who else is coming. On the title screen because it is a decision
+		# made on the way into a run, not a menu to go hunting for.
+		_quick(quick, "Party", UiRoute.PARTY, who)
 
 	set_process(true)
 

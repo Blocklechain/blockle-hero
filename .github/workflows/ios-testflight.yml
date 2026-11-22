@@ -173,7 +173,7 @@ jobs:
                    wiredtest gatetest respectest spectacletest titletest \
                    tactictest safetest \
                    slamtest shapetest modetest dresstest trainingtest \
-                   questtest \
+                   questtest partytest \
                    classcheck; do
             echo "--- $t"
             "$GODOT" --headless --path . --script "tools/$t.gd"
