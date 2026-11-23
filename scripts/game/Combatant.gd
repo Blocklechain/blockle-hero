@@ -47,6 +47,17 @@ var damage_scale: float = 1.0
 var effects: Array[StatusEffect] = []
 var alive: bool = true
 
+## INVULNERABILITY FRAMES, owned by whoever is rolling. Set for the opening of a
+## dodge roll and cleared when it ends (HeroController.DODGE_IFRAME), so the
+## window is a property of the body and every damage source has to respect it
+## without knowing what a dodge roll is.
+##
+## Checked by strike() and take_hit() — the two ways damage ARRIVES — and
+## deliberately NOT by _take_raw(), which is also how a burn already stuck to you
+## does its ticking. Rolling gets you out of the way of the next attack; it does
+## not put out a fire you are already on.
+var invulnerable: bool = false
+
 ## Deterministic roll stream. Combat that reroll differently on replay cannot be
 ## debugged from a save, so crits and dodges come from the seeded hash too.
 var rng_seed: int = 0
@@ -211,6 +222,12 @@ func strike(target: Combatant, multiplier: float = 1.0,
 	if not alive or target == null or not target.alive:
 		return {"damage": 0.0, "crit": false, "dodged": false, "killed": false}
 
+	# A ROLL BEATS THE DICE, so this is checked before dodge_chance: a frame the
+	# player bought with a button press is not a probability, and making an
+	# earned dodge also pass a random roll is how i-frames feel broken.
+	if target.invulnerable:
+		return {"damage": 0.0, "crit": false, "dodged": true, "killed": false}
+
 	# Dodge first: a dodged hit does nothing at all, including no crit, which
 	# keeps the combat log readable.
 	if target._roll() < target.stats.dodge_chance():
@@ -234,6 +251,12 @@ func strike(target: Combatant, multiplier: float = 1.0,
 ## attack the player is meant to build around.
 func take_hit(amount: float, source: String) -> bool:
 	if not alive or amount <= 0.0:
+		return false
+	# A boss slam is the thing a dodge roll EXISTS for, and it arrives here
+	# rather than through strike(). An i-frame honoured by weapon swings but not
+	# by the telegraphed ground attack would be a dodge roll that does not dodge
+	# the only attack worth dodging.
+	if invulnerable:
 		return false
 	return _take_raw(amount * (1.0 - mitigation()), false, source)
 

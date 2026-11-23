@@ -176,6 +176,7 @@ func _ready() -> void:
 		_hud.name = "Hud"
 		add_child(_hud)
 	_hud.action.connect(_on_hud_action)
+	_hud.dodge_pressed.connect(_on_hud_dodge)
 
 	# Added ABOVE the HUD in draw order but below it in input priority: the
 	# stick runs in _input (which sees events before _unhandled_input) yet only
@@ -1761,6 +1762,25 @@ func _release() -> void:
 
 func _on_hud_action(slot: int) -> void:
 	_use(slot)
+
+
+## The roll key. ROLLS THE WAY THE STICK IS POINTING, falling back to the way the
+## champion faces when it is released — a roll that always went forwards would be
+## useless for backing out of something, which is most of what it is for.
+##
+## The direction is converted through ArpgCamera.stick_to_world for the same
+## reason _on_stick does: the stick is in SCREEN space and the world is rotated
+## under the camera, so a raw screen vector rolls somewhere other than where the
+## thumb pointed.
+func _on_hud_dodge() -> void:
+	if _hero == null or _hero.is_dead():
+		return
+	var dir: Vector2 = Vector2.ZERO
+	if _stick != null and _stick.is_active():
+		var raw: Vector2 = _stick.direction()
+		if raw != Vector2.ZERO:
+			dir = ArpgCamera.stick_to_world(raw)
+	_hero.dodge(dir)
 
 
 ## The one door every action goes through, whether it came from a thumb or a

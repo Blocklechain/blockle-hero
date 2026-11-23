@@ -62,6 +62,28 @@ const ARC_RADIUS: float = 360.0
 const ARC_ANGLES: PackedFloat32Array = [-90.0, -135.0, -180.0]
 const PAD_MARGIN: float = 40.0
 
+## ---- THE ROLL KEY -----------------------------------------------------------
+##
+## Its own key on its own ring, NOT a fifth seat on the ability arc, and the
+## geometry is forced by two things it must not touch:
+##
+##   * THE JOYSTICK ZONE. Joystick.claims() takes any touch in the left
+##     Joystick.ZONE_W (42%) of the screen, and Play.gd asks the stick first —
+##     so a roll key whose EDGE reaches into that band has a dead side. This is
+##     why it cannot go near the thumb that steers, which is otherwise where a
+##     movement verb belongs.
+##   * THE FOUR ABILITY KEYS. Two circles overlap unless their centres are more
+##     than the sum of their radii apart.
+##
+## -112.5 degrees at 620 px sits above the arc, between ability_1 and
+## ability_2's headings and well outboard of both. tools/dodgeuitest.gd checks
+## both clearances against the SHIPPING viewport rather than trusting these
+## numbers, because every one of them is a guess that a later layout change can
+## quietly invalidate.
+const DODGE_SLOT: int = 4
+const ROLL_ANGLE: float = -112.5
+const ROLL_RADIUS: float = 620.0
+
 # --- floating numbers --------------------------------------------------------
 const NUM_LIFE: float = 0.95
 const NUM_RISE: float = 170.0
@@ -96,6 +118,10 @@ const STATUS_COLOUR: Dictionary = {
 ## Fired when a key is pressed. Play.gd owns what an action MEANS — the HUD only
 ## reports that a thumb landed on slot n.
 signal action(slot: int)
+
+## A thumb landed on the roll key. Separate from action() because a roll is not
+## an ability: it has no slot in the kit, no Ability record and its own cooldown.
+signal dodge_pressed
 
 var _champion: HeroController = null
 var _camera: Camera3D = null
@@ -284,6 +310,22 @@ static func key_layout(view: Vector2, bottom_inset: float,
 	return out
 
 
+## Where the roll key goes. Deliberately NOT part of key_layout(): that function
+## answers "where are the four ability keys", which several harnesses asserted
+## before the roll existed, and the roll is not one of them.
+static func dodge_key_layout(view: Vector2, bottom_inset: float,
+		right_inset: float = 0.0) -> Dictionary:
+	var basic := Vector2(
+		view.x - right_inset - PAD_MARGIN - KEY_R_BASIC,
+		view.y - bottom_inset - PAD_MARGIN - KEY_R_BASIC)
+	var a: float = deg_to_rad(ROLL_ANGLE)
+	return {
+		"slot": DODGE_SLOT,
+		"centre": basic + Vector2(cos(a), sin(a)) * ROLL_RADIUS,
+		"radius": KEY_R_ABILITY,
+	}
+
+
 func _build_pad() -> void:
 	var inset: Dictionary = _insets()
 	var view: Vector2 = _view()
@@ -293,6 +335,11 @@ func _build_pad() -> void:
 			float(inset["right"])):
 		_keys.append(_make_key(int(spec["slot"]), spec["centre"],
 			float(spec["radius"])))
+
+	var roll: Dictionary = dodge_key_layout(view, float(inset["bottom"]),
+		float(inset["right"]))
+	_dodge_key = _make_key(int(roll["slot"]), roll["centre"],
+		float(roll["radius"]))
 
 	# Above the arc rather than over it: a stun lasts seconds and the player is
 	# looking at their thumb, not at the top of the screen.
@@ -304,6 +351,11 @@ func _build_pad() -> void:
 	_locked_banner.size = Vector2(700.0, 60.0)
 	_locked_banner.visible = false
 	_root.add_child(_locked_banner)
+
+
+## The roll key, held apart from _keys so every loop over the four ability keys
+## keeps meaning exactly what it did.
+var _dodge_key: AbilityKey = null
 
 
 func _make_key(slot: int, centre: Vector2, r: float) -> AbilityKey:
@@ -351,6 +403,13 @@ func bind_champion(champion: HeroController, camera: Camera3D) -> void:
 		k.glyph_kind = _glyph_for(k.slot, cls)
 		k.visible = true
 		k.refresh_look()
+
+	if _dodge_key != null:
+		# Not from the kit: every champion rolls, so the title is fixed.
+		_dodge_key.title = "Roll"
+		_dodge_key.glyph_kind = UiGlyph.Kind.ARROW
+		_dodge_key.visible = true
+		_dodge_key.refresh_look()
 
 
 ## Slot 0 shows the class's weapon; the three abilities show their ROLE, which is
@@ -456,10 +515,19 @@ func blocks_point(p: Vector2) -> bool:
 	for k in _keys:
 		if k.visible and k.covers_global(p):
 			return true
+	# The roll key too, or a press on it ALSO issues a walk order to the ground
+	# underneath — the champion rolls and then strolls back to where the thumb
+	# landed, which is the opposite of escaping.
+	if _dodge_key != null and _dodge_key.visible \
+			and _dodge_key.covers_global(p):
+		return true
 	return false
 
 
 func _on_key_fired(slot: int) -> void:
+	if slot == DODGE_SLOT:
+		dodge_pressed.emit()
+		return
 	action.emit(slot)
 
 
@@ -491,6 +559,14 @@ func _advance_keys() -> void:
 			_champion.cooldown_fraction(k.slot),
 			stunned or dead,
 			ab)
+	if _dodge_key != null:
+		# A stun takes the roll away too. It is an escape, not an exemption —
+		# and a key that looked live while dodge() refused would read as the
+		# button being broken.
+		_dodge_key.set_state(_champion.dodge_cooldown_left(),
+			_champion.dodge_cooldown_fraction(),
+			stunned or dead,
+			null)
 	_locked_banner.visible = stunned and not dead
 	if _locked_banner.visible:
 		var e: StatusEffect = _champion.body.effect_of(StatusEffect.Kind.STUN) \

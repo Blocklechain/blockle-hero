@@ -96,6 +96,43 @@ var _cast_facing: float = NAN
 ## Fixing it properly means an AnimationTree with an upper-body mask over all
 ## 139 rigs. That is a real piece of work and this is the honest interim.
 const CAST_MOVE_SCALE: float = 0.55
+
+## ---- THE DODGE ROLL ---------------------------------------------------------
+##
+## A committed, cooldown-gated escape, which is the one defensive verb the game
+## did not have: every other way of not being hit was a passive stat or a lucky
+## dodge_chance roll. Boss AoE telegraphs for ~0.9 s and there was nothing to
+## DO with that warning except already be standing somewhere else.
+##
+## The numbers are the whole design, so they are named rather than inlined:
+##
+##   DISTANCE 4.6 m  further than a boss slam's radius from its edge, so a roll
+##                   started inside the ring clears it, and short enough that it
+##                   is not a free reposition across the arena.
+##   TIME 0.30 s     the roll is committed: nothing can be done during it, which
+##                   is what makes spending it a decision rather than a reflex.
+##   IFRAME 0.22 s   DELIBERATELY SHORTER THAN THE ROLL. The last ~27% is
+##                   recovery with no protection, so a roll read early still
+##                   gets punished and spamming it into an attack does not work.
+##                   Equal windows would make the roll a strictly-better "do not
+##                   take damage" button.
+##   COOLDOWN 1.1 s  longer than the roll by enough that two rolls cannot chain
+##                   into permanent immunity.
+##
+## There is NO roll clip. The 139 rigs are Mixamo exports with idle/walk/run/
+## attack/ability/hit/death and nothing else, so the roll plays RUN at speed.
+## The feel has to come from the ease curve and the i-frame rather than from
+## animation, and pretending otherwise would mean a missing-clip fallback
+## standing the champion still in the middle of their own dodge.
+const DODGE_DISTANCE: float = 4.6
+const DODGE_TIME: float = 0.30
+const DODGE_IFRAME: float = 0.22
+const DODGE_COOLDOWN: float = 1.1
+
+var _dodge_cd: float = 0.0
+var _iframe: float = 0.0
+var _dodging: bool = false
+
 var _facing: float = 0.0
 
 ## Metres walked since the last footstep cue. Steps are fired per DISTANCE, not
@@ -299,6 +336,29 @@ func _physics_process(delta: float) -> void:
 		var left: float = float(_cooldowns[k]) - delta
 		_cooldowns[k] = maxf(left, 0.0)
 
+	_dodge_cd = maxf(_dodge_cd - delta, 0.0)
+
+	# THE I-FRAME EXPIRES ON ITS OWN CLOCK, not with the roll. DODGE_IFRAME is
+	# shorter than DODGE_TIME on purpose, so the tail of the roll is recovery
+	# the player can still be punished during.
+	if _iframe > 0.0:
+		_iframe = maxf(_iframe - delta, 0.0)
+		if _iframe == 0.0 and body != null:
+			body.invulnerable = false
+
+	# A ROLL IN PROGRESS OUTRANKS EVERYTHING. It is checked before _busy_until
+	# because dodge() clears that anyway, and before the stick, because a roll
+	# that could be steered mid-air is not a commitment.
+	if _dodging:
+		_advance_dash(delta)
+		if _dash_time == 0.0:
+			_dodging = false
+			# Belt and braces: if the frame pacing ever let the roll outlast its
+			# own i-frame timer, invulnerability must not survive the roll.
+			if _iframe == 0.0 and body != null:
+				body.invulnerable = false
+		return
+
 	if _busy_until > 0.0:
 		_busy_until -= delta
 		if _dash_time > 0.0:
@@ -456,6 +516,75 @@ func drive(dir: Vector2, run: bool = true) -> void:
 ## True while the stick is held — the HUD dims the tap-to-move affordance.
 func is_driven() -> bool:
 	return _drive != Vector2.ZERO
+
+
+## Roll. Returns false when the champion cannot right now, so a HUD button can
+## grey itself out instead of lying about being available.
+##
+## `dir` is a ground-space direction; Vector2.ZERO rolls the way they face,
+## which is what pressing the button with no stick input means.
+##
+## A ROLL CANCELS A CAST, including a rooted one. Being locked out of the escape
+## button by your own ability is the complaint the cast-while-moving change was
+## about, and it bites harder here: the entire point is to leave somewhere you
+## can see an attack landing. Committing to a wind-up should cost the damage,
+## not the next ten seconds of being alive.
+##
+## It does NOT interrupt a dash. A charge already moving the body would fight
+## the roll for the position every frame — the same reason a self-moving ability
+## is force-rooted during a cast.
+func dodge(dir: Vector2 = Vector2.ZERO) -> bool:
+	if _dead or _dodging or _dodge_cd > 0.0 or _dash_time > 0.0:
+		return false
+
+	var heading: Vector2 = dir
+	if heading.length_squared() < 0.0001:
+		heading = Vector2(sin(_facing), cos(_facing))
+	heading = heading.normalized()
+
+	var here: Vector2 = ground_position()
+	# The same validation a blink gets. A roll ending inside a cliff puts the
+	# body off the walk grid with nothing able to route it out.
+	var land: Vector2 = _safe_landing(here, heading, DODGE_DISTANCE)
+	if here.distance_to(land) < 0.4:
+		# Rolling into a wall would spend the cooldown and the i-frames for no
+		# movement, which reads as the button being broken rather than as the
+		# wall being in the way.
+		return false
+
+	# Drop whatever was happening. The path has to go too, or the follower
+	# resumes walking to a click the player made before they needed to escape.
+	_path = PackedVector2Array()
+	_leg = 0
+	_busy_until = 0.0
+	_cast_rooted = true
+	_cast_facing = NAN
+
+	_dodging = true
+	_dodge_cd = DODGE_COOLDOWN
+	_iframe = DODGE_IFRAME
+	if body != null:
+		body.invulnerable = true
+
+	_dash_from = here
+	_dash_to = land
+	_dash_t = 0.0
+	_dash_time = DODGE_TIME
+	_facing = atan2(heading.x, heading.y)
+	rig.set_locomotion(1.0)
+	rig.set_state(HeroRig.State.RUN)
+	return true
+
+
+## Seconds until the roll is available again. For the HUD's key, which has to
+## show the same number the champion is actually obeying.
+func dodge_cooldown_left() -> float:
+	return _dodge_cd
+
+
+## 0..1 of the cooldown still to run, for the key's sweep.
+func dodge_cooldown_fraction() -> float:
+	return clampf(_dodge_cd / DODGE_COOLDOWN, 0.0, 1.0)
 
 
 ## Set up the displacement for an ability that has one.
@@ -690,6 +819,16 @@ func revive() -> void:
 	pending_cast = null
 	_cast_facing = NAN
 	_cast_rooted = true
+	# DYING MID-ROLL LEAVES BOTH LATCHES SET. _physics_process returns early for
+	# a corpse, so neither the roll nor its i-frame ever finishes ticking — and a
+	# champion revived still flagged invulnerable would be unkillable for the
+	# rest of the run.
+	_dodging = false
+	_iframe = 0.0
+	_dodge_cd = 0.0
+	_dash_time = 0.0
+	if body != null:
+		body.invulnerable = false
 	stop()
 	if rig != null:
 		rig.revive()
