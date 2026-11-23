@@ -96,8 +96,23 @@ func _go() -> void:
 		_done()
 		return
 
-	# UNKILLABLE, so a dropped tap cannot be confused with a dead champion.
+	# UNKILLABLE *AND* UNSTUNNABLE, so a dropped tap cannot be confused with a
+	# champion the region took away.
+	#
+	# `invulnerable` only stops DAMAGE — it is checked in strike() and
+	# take_hit(). A stun arrives by a different road: Combat.cast applies the
+	# rider through Combatant.apply(), which never consults it. So an
+	# invulnerable champion standing in a pack of ten still gets stunned, and
+	# use_ability refuses while stunned. That is what turned this very test red
+	# in CI on slot 3 while it passed here (build 49): the readiness check saw
+	# `stunned=false`, and a stun landed in the frames between that and the
+	# touch.
+	#
+	# Fourth time the live region has interfered with a test of mine this
+	# session. The subject of an INPUT test must be immovable by anything the
+	# encounter does.
 	me.body.invulnerable = true
+	_quiesce(me)
 
 	var keyed: Array = []
 	var acted: Array = []
@@ -126,8 +141,11 @@ func _press(me: HeroController, hud, k, keyed: Array, acted: Array,
 
 	# A FAIR PRESS. Wait out the previous cast and this slot's own cooldown,
 	# because use_ability refuses both and neither is an input bug.
+	# 30 s of headroom, not 20. Rally's cooldown measured 14.5 s and the
+	# previous cast's recovery sits on top of it; a runner that is slower than
+	# this laptop should not be able to turn a cooldown into a failure.
 	var t0: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 20000 \
+	while Time.get_ticks_msec() - t0 < 30000 \
 			and (me.is_busy() or me.cooldown_left(k.slot) > 0.0):
 		await physics_frame
 	check("the slot is ready to press", not me.is_busy()
@@ -137,9 +155,13 @@ func _press(me: HeroController, hud, k, keyed: Array, acted: Array,
 		not me.is_dead() and not me.is_stunned(),
 		"dead=%s stunned=%s" % [me.is_dead(), me.is_stunned()])
 
-	# STANDING STILL, which is the case the player reported.
+	# STANDING STILL, which is the case the player reported — and re-quietened
+	# immediately before the press, because the wait above can be fifteen
+	# seconds of a pack swinging at the champion.
 	me.drive(Vector2.ZERO)
+	_quiesce(me)
 	await physics_frame
+	_quiesce(me)
 
 	var centre: Vector2 = k.position + Vector2(k.radius, k.radius)
 	check("the key is visible and owns its own centre",
@@ -158,6 +180,23 @@ func _press(me: HeroController, hud, k, keyed: Array, acted: Array,
 	check("...the HUD reported the action", acted.size() > na)
 	check("...and the champion used the ability", used.size() > nu,
 		"slot %d" % k.slot)
+
+
+## Take the encounter out of the question: clear any control effect on the
+## champion and hold stun immunity open for longer than this harness runs.
+##
+## Uses the real Combatant.stun_immunity rather than a test-only hook, so what
+## is being leaned on is a mechanism the game itself has.
+func _quiesce(me: HeroController) -> void:
+	if me.body == null:
+		return
+	me.body.stun_immunity = 600.0
+	var keep: Array[StatusEffect] = []
+	for e in me.body.effects:
+		if e.kind != StatusEffect.Kind.STUN \
+				and e.kind != StatusEffect.Kind.SLOW:
+			keep.append(e)
+	me.body.effects = keep
 
 
 ## Half a gesture, through Input, the way a thumb does.
