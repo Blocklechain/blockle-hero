@@ -133,11 +133,25 @@ func _it_moves() -> void:
 	var hero: HeroController = h["hero"]
 	var before: Vector2 = hero.ground_position()
 	check("the roll was accepted", hero.dodge(h["open"]))
-	# Hold the stick the WRONG way through the roll: a commitment that can be
+	# DRIVEN UNTIL THE ROLL ACTUALLY ENDS, not for a fixed frame count.
+	#
+	# A headless frame's delta is however long the frame took, so "40 frames"
+	# is a different amount of SIMULATED time on every machine. This test used
+	# to loop 40 times and measure: locally that covered enough of the 0.30 s
+	# roll to travel 3.67 m and pass, and on CI's runner it covered 1.29 m and
+	# failed the 2.3 m threshold — a green test on my laptop and a red build,
+	# for a roll that was simply still in progress. Third time this session I
+	# have made the frames-for-time mistake; the cure is to wait for the EVENT.
+	#
+	# The stick is held the WRONG way throughout: a commitment that can be
 	# steered is not a commitment.
-	for i in range(40):
+	var spin: int = 0
+	while bool(hero.get("_dodging")) and spin < 600:
 		hero.drive(-h["open"], true)
 		await process_frame
+		spin += 1
+	check("the roll ran to completion", not bool(hero.get("_dodging")),
+		"%d frames" % spin)
 	var moved: float = before.distance_to(hero.ground_position())
 	check("THE CHAMPION MOVED", moved > HC.DODGE_DISTANCE * 0.5, "%.2f m" % moved)
 	check("...roughly a roll's distance, not an arena-crossing teleport",

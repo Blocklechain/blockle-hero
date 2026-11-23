@@ -187,8 +187,13 @@ func _pressing_it_rolls() -> void:
 	await _touch(centre, true)
 	await _touch(centre, false)
 
-	for i in range(40):
+	# Until the roll ENDS, for the same reason dodgetest does: a fixed frame
+	# count is a different amount of simulated time on every machine, and a
+	# roll measured mid-flight reads as a roll that barely moved.
+	var spin: int = 0
+	while bool(hero.get("_dodging")) and spin < 600:
 		await process_frame
+		spin += 1
 	var moved: float = before.distance_to(hero.ground_position())
 	check("A TOUCH ON THE KEY ROLLED THE CHAMPION",
 		moved > HC.DODGE_DISTANCE * 0.5, "%.2f m" % moved)

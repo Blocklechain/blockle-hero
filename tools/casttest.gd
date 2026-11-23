@@ -148,18 +148,32 @@ func _moves_while_casting() -> void:
 	check("...and the champion is busy casting", hero.is_busy())
 
 	# Hold the stick through the cast, as a player would.
-	for i in range(30):
+	# MEASURED AS A RATE OVER REAL TIME, not as a distance over a frame count.
+	#
+	# This used to drive 30 frames and compare the result against
+	# `RUN_SPEED * 30.0 * (1.0 / 60.0)` — which assumes 60 fps. A headless
+	# frame takes however long it takes, so both halves of that were a
+	# different measurement on every machine. The same mistake in
+	# tools/dodgetest.gd shipped a red CI build (run 45141721284: "THE CHAMPION
+	# MOVED  1.29 m" on the runner where this laptop measured 3.67 m), so it is
+	# worth correcting here before it does the same.
+	#
+	# Speed is the property under test anyway: the champion must move, and move
+	# SLOWER than a free run, and neither statement needs a frame count.
+	var t0: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 350:
 		hero.drive(dir, true)
 		await process_frame
+	var elapsed: float = float(Time.get_ticks_msec() - t0) / 1000.0
 	var after: Vector2 = hero.ground_position()
 	var moved: float = before.distance_to(after)
-	check("THE CHAMPION MOVED while the cast played", moved > 0.5,
-		"%.2f m" % moved)
+	var rate: float = moved / maxf(elapsed, 0.001)
+	check("THE CHAMPION MOVED while the cast played", moved > 0.05,
+		"%.2f m in %.2f s" % [moved, elapsed])
 	# It should be SLOWER than a free run, not equal to it — the slide has to
 	# read as a committed stride rather than ice-skating.
-	check("...but slower than running free",
-		moved < HeroController.RUN_SPEED * 30.0 * (1.0 / 60.0),
-		"%.2f m in 30 frames" % moved)
+	check("...but slower than running free", rate < HeroController.RUN_SPEED,
+		"%.2f m/s vs a %.2f m/s run" % [rate, HeroController.RUN_SPEED])
 
 	hero.queue_free()
 
