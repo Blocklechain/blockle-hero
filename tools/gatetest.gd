@@ -111,6 +111,39 @@ func _screen() -> void:
 	# The property is unchanged — a map the player cannot enter must say what
 	# opens it — so the test pages right, the way a player would, until it
 	# finds a sealed one, and then looks.
+	# PICK A CHAMPION FIRST, because the screen genuinely cannot answer the
+	# question without one: _refresh_chrome() starts with
+	# `roster.progress(hero)` and there is no progress for hero == "". This
+	# section used to go straight to CAMPAIGN from a cold boot, so the Enter
+	# button it then searched for had never been given any text at all — the
+	# words it was hunting for could not appear no matter how far it paged.
+	#
+	# The missing label was a real bug too and is fixed in CampaignScreen
+	# (a blank ENABLED button that reads as pressable), but a test that only
+	# ever saw that state was never testing the gate.
+	# A COLD HEADLESS BOOT HANDS THE SHELL AN EMPTY ROSTER — owned_names() is 0,
+	# so selected_hero is "" and there is no champion for the screen to say
+	# anything about. Every assertion below needs one: the campaign screen reads
+	# roster.progress(hero) before it will label a region, and _launch() reads
+	# shell.selected_hero.
+	#
+	# Granted on the SHELL, which is the source of truth — UiShell pushes both
+	# `roster` and `hero` down into the screen when a route is entered — and
+	# then the route is re-entered so the screen receives them the way it does
+	# in the game, rather than having its fields poked from outside.
+	if shell.roster != null and shell.roster.owned_names().size() == 0:
+		var starters: PackedStringArray = Champion.starters(
+			HeroRig.animated_heroes())
+		if starters.size() > 0:
+			shell.roster.call("_grant_champion", starters[0])
+	if shell.roster != null:
+		var owned: PackedStringArray = shell.roster.owned_names()
+		if owned.size() > 0 and not shell.roster.owns(shell.selected_hero):
+			shell.selected_hero = owned[0]
+	shell.goto(UiRoute.CAMPAIGN)
+	for i in range(8):
+		await process_frame
+
 	var screen: UiScreen = shell.current_screen()
 	var right: Button = _arrow(screen, false)
 	check("the carousel has an arrow to page forward", right != null)

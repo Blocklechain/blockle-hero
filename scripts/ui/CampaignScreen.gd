@@ -347,6 +347,17 @@ func refresh() -> void:
 func _refresh_chrome() -> void:
 	var p: HeroProgress = roster.progress(hero)
 	if p == null:
+		# NO CHAMPION CHOSEN YET. This used to be a bare `return`, which skipped
+		# the whole function — including the two lines that set the Enter
+		# button's text and its disabled flag. The button is BUILT blank and
+		# enabled, so the screen offered an unlabelled button that reads as
+		# pressable and does nothing. _on_enter() carries the same p == null
+		# guard, so it was inert rather than dangerous, but a dead button that
+		# looks live is its own bug — and it is what tools/gatetest.gd trips on,
+		# because the words it goes looking for can never appear.
+		if _enter != null:
+			_enter.disabled = true
+			_enter.text = "Choose a champion first"
 		return
 
 	for i in range(_tier_buttons.size()):

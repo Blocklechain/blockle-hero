@@ -11,8 +11,7 @@ NOTHING HERE IS HAND-WRITTEN PER MAP, and nothing here re-derives the campaign.
 campaign need" using the same Campaign/Biome/StageArt code the game reads:
 
   * the plate list is Campaign.biome_at x Campaign.dread_band (StageArt.BANDS),
-    so 100 maps resolve onto 27 plates and a plate is only generated if a map
-    can actually ask for it;
+    so 100 maps resolve onto 27 plates;
   * each plate's SUBJECT is the biome's own `mood` string out of Biome.gd
     ("drowned moorland, visibility nil"), written for the renderer's palette;
   * each plate's DREAD comes back measured — the real Campaign.dread range of
@@ -23,10 +22,30 @@ campaign need" using the same Campaign/Biome/StageArt code the game reads:
 Change a mood in Biome.gd, or the act windows in Campaign.gd, and the art set
 follows. That is why this does not parse the campaign itself in Python.
 
+GENERATING ONLY THE CAMPAIGN'S PAIRS WAS NOT ENOUGH — use --grid.
+Campaign.biome_at x dread_band visits 27 of the 16x5 pairs the names allow, and
+generating exactly those 27 leaves the art set shaped like today's act windows.
+Two things then went wrong, and both were invisible from here:
+
+  * scripts/ui/StagePlate.gd quantises the band with its OWN `const BANDS := 4`
+    while StageArt.gd declares 5, so the UI asks for pairs that are off the
+    27-pair diagonal — and StagePlate.texture_for only searches DOWNWARD, so
+    when nothing lower exists it hands back null and the screen draws a flat
+    biome colour. Measured by tools/plateartest.gd: 18 of the 100 maps had no
+    art at all, while tools/dump_plates.gd reported "plates missing: 0" because
+    it only ever asks StageArt's question.
+  * any later move of the act windows lands on an ungenerated pair and quietly
+    degrades to another band's painting.
+
+The full grid is 80 plates, ~6 MiB of JPEG, and makes both failures impossible
+regardless of which file's band count is right. So the default stays "what the
+campaign asks for" and --grid fills every biome at every band.
+
 Deterministic: the seed is derived from the plate key, so re-running reproduces
 the same images and a regenerated set does not churn git.
 
   python3 tools/gen_concept_art.py                    # everything missing
+  python3 tools/gen_concept_art.py --grid             # the full biome x band grid
   python3 tools/gen_concept_art.py --force            # regenerate all of it
   python3 tools/gen_concept_art.py --only mistmoor    # one biome, its bands
   python3 tools/gen_concept_art.py --menus            # just the menu plates
@@ -201,6 +220,60 @@ def plates_from_godot() -> list[dict]:
                      + proc.stdout[-2000:] + proc.stderr[-2000:])
 
 
+def biome_ids() -> list[str]:
+    """Biome.IDS — the sixteen biomes, in progression order.
+
+    Parsed ONLY to detect a biome the campaign never visits, which the grid
+    could not give a prompt to anyway (the mood comes from the dump, not from
+    here). The art still never re-derives the campaign in Python.
+    """
+    src = (ROOT / "scripts" / "world" / "Biome.gd").read_text(encoding="utf-8")
+    m = re.search(r"const IDS: PackedStringArray = \[(.*?)\]", src, re.DOTALL)
+    if not m:
+        raise SystemExit("cannot find 'const IDS' in scripts/world/Biome.gd")
+    return re.findall(r'"([a-z_]+)"', m.group(1))
+
+
+def expand_grid(chosen: list[dict], nbands: int) -> list[dict]:
+    """Every biome at every band, from the moods the dump already supplied.
+
+    The campaign's own pairs come through UNCHANGED — same key, same seed, same
+    measured dread note — so running --grid does not re-render or re-seed the
+    27 plates that already shipped. The rest are filled in around them, keyed
+    the same way StageArt.plate_key would key them, with maps=0 so the log
+    distinguishes a plate a map asks for today from one held in reserve.
+    """
+    by_biome: dict[str, dict] = {}
+    for p in chosen:
+        by_biome.setdefault(p["biome"], p)
+
+    # A biome the campaign never reaches has no mood in the dump, and inventing
+    # one here is exactly the drift this script is built to prevent. Say so
+    # instead: the fix is in Campaign.gd or dump_plates.gd, not in Python.
+    unvisited = [b for b in biome_ids() if b not in by_biome]
+    if unvisited:
+        print(f"note: {len(unvisited)} biome(s) the campaign never visits and "
+              f"so have no mood to paint: {', '.join(unvisited)}")
+
+    out: list[dict] = []
+    have = {(p["biome"], int(p["band"])) for p in chosen}
+    for biome in biome_ids():
+        src = by_biome.get(biome)
+        if src is None:
+            continue
+        for band in range(nbands):
+            if (biome, band) in have:
+                out.append(next(p for p in chosen if p["biome"] == biome
+                                and int(p["band"]) == band))
+                continue
+            p = dict(src)
+            p["band"] = band
+            p["key"] = "%s_d%d" % (biome, band)
+            p["maps"] = 0
+            out.append(p)
+    return out
+
+
 def seed_for(key: str) -> int:
     """Stable across runs and across machines — Python's hash() is salted."""
     return zlib.crc32(key.encode()) & 0x7FFFFFFF
@@ -236,6 +309,9 @@ def main() -> int:
     ap.add_argument("--steps", type=int, default=3,
                     help="SDXL-Turbo needs 1-4; more is slower, not always better")
     ap.add_argument("--only", default="", help="one biome id")
+    ap.add_argument("--grid", action="store_true",
+                    help="every biome at every band, not just the pairs the "
+                         "campaign visits today — see the module docstring")
     ap.add_argument("--band", default="",
                     help="comma list of dread bands, overriding the campaign's "
                          "own pairing; for inspecting the ladder, not shipping")
@@ -272,6 +348,8 @@ def main() -> int:
                 ids = sorted({p["biome"] for p in stages})
                 raise SystemExit(f"no campaign plate for biome '{args.only}'; "
                                  f"the campaign visits {ids}")
+        if args.grid:
+            chosen = expand_grid(chosen, nbands)
         if args.band:
             # Off-grid: take the first plate of this biome for its mood, then
             # re-key it onto the requested bands.
@@ -294,7 +372,9 @@ def main() -> int:
             prompt = f"{subject}, {DREAD_LADDER[int(p['band'])]}, {STYLE}"
             note = ("%2d maps, dread %.2f-%.2f" % (
                 int(p["maps"]), float(p["dread_lo"]), float(p["dread_hi"]))
-                if int(p["maps"]) else "off-grid sample")
+                if int(p["maps"])
+                else ("grid fill, no map asks yet" if args.grid
+                      else "off-grid sample"))
             jobs.append((OUT_STAGES / f"{p['key']}.jpg", p["key"], prompt, note))
     if not args.stages and (not args.only or args.menus):
         chosen_menus = MENUS
