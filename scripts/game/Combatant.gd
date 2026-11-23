@@ -44,6 +44,20 @@ var armour: float = 0.0
 ## transient and part of the fight, this one is how the encounter was built.
 var damage_scale: float = 1.0
 
+## HOW BIG THIS BODY'S SELF-HEALS ARE, relative to a normal body of its level.
+##
+## Ability.heal_fraction is a fraction of max_health, and a boss's max_health is
+## already multiplied by Encounter.BOSS_HEALTH_MULT (8x) — so a 25% heal put
+## back TWO normal health bars every cast. Measured by tools/balancetest.gd:
+## boss g039 on map 56 restored 2.8 times its own already-inflated bar over one
+## fight, which is not a hard fight, it is an unwinnable one.
+##
+## A boss is meant to have more HEALTH, not more HEALING. Set to
+## 1 / BOSS_HEALTH_MULT for bosses (Encounter.body_for) so a boss's self-heal is
+## the same absolute size as that same champion's would be, and left at 1.0 for
+## everything else.
+var heal_scale: float = 1.0
+
 var effects: Array[StatusEffect] = []
 var alive: bool = true
 

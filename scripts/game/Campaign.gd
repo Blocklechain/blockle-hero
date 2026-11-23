@@ -107,9 +107,9 @@ const LEVEL_DECAY: float = 0.958
 ## Health climbs faster than damage ON PURPOSE: fights should get longer and
 ## more demanding, not become one-shot coin flips. FIRST is what tier 1 does to
 ## tier 0 (the shipped x2.6 / x1.9 / x2.2); DECAY shrinks every step after.
-const HEALTH_FIRST: float = 2.6
+const HEALTH_FIRST: float = 1.8
 const HEALTH_DECAY: float = 0.9437
-const DAMAGE_FIRST: float = 1.9
+const DAMAGE_FIRST: float = 1.45
 const DAMAGE_DECAY: float = 0.9102
 const XP_FIRST: float = 2.2
 const XP_DECAY: float = 0.8738

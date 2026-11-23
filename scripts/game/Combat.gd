@@ -50,7 +50,11 @@ static func cast(ability: Ability, ctx: Context) -> Result:
 
 	# --- what the caster does to itself ---------------------------------
 	if ability.heal_fraction > 0.0:
-		var amount: float = caster.max_health * ability.heal_fraction
+		# SCALED BY THE BODY, not just by its health pool — see
+		# Combatant.heal_scale. An 8x boss pool would otherwise turn a 25% heal
+		# into two normal health bars a cast.
+		var amount: float = caster.max_health * ability.heal_fraction \
+			* caster.heal_scale
 		caster.heal(amount)
 		r.healed += amount
 

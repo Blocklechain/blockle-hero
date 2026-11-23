@@ -145,11 +145,53 @@ static func basic_attack(cls: int) -> Ability:
 ## element and a delivery form (see MageSpells.gd). The slot grammar still
 ## holds — damage, control, self — so the controls stay learnable even though
 ## no two mages cast the same thing.
+## A STUN MAY NEVER LAST HALF OF ITS OWN COOLDOWN.
+##
+## Every champion is also an enemy and a boss — the campaign rolls bosses out of
+## the same 139 kits the player picks from — so a stun rider that outlasts its
+## own cooldown is not a strong ability, it is a LOCK. The enemy presses it, the
+## champion cannot act, it comes off cooldown before the stun ends, and the
+## fight is over without the player taking a turn.
+##
+## Measured by tools/balancetest.gd before this clamp existed:
+##
+##   * 5 of 139 champions carried one (worst: g110's Galelance, a 4.7 s stun on
+##     a 3.1 s cooldown — a 150% duty cycle, i.e. permanent);
+##   * boss g027 on map 36 held the champion unable to act for 83-88% of the
+##     fight, which reads to a player as a boss with absurd health rather than
+##     as a stun they can do nothing about.
+##
+## HALF, not the 60% the harness tops out at, so the rule is a design statement
+## with headroom rather than a value tuned to pass a test: at most half of a
+## stunning ability's recharge can be spent stunned by it, so one enemy can
+## never hold you more than half the time.
+const STUN_DUTY_MAX: float = 0.5
+
+
 static func for_hero(hero: String, cls: int) -> Array[Ability]:
+	var kit: Array[Ability]
 	match cls:
-		HeroClass.Kind.FIGHTER: return _fighter()
-		HeroClass.Kind.RANGER: return _ranger()
-		_: return MageSpells.for_hero(hero)
+		HeroClass.Kind.FIGHTER: kit = _fighter()
+		HeroClass.Kind.RANGER: kit = _ranger()
+		_: kit = MageSpells.for_hero(hero)
+	return _cap_control(kit)
+
+
+## Clamp every stun rider in a kit. Applied HERE because for_hero() is the one
+## door every kit comes through — player, partner, enemy and boss alike — so a
+## per-hero variant cannot route around it, and neither can a kit added later.
+static func _cap_control(kit: Array[Ability]) -> Array[Ability]:
+	for ab in kit:
+		if ab == null or ab.applies != StatusEffect.Kind.STUN:
+			continue
+		if ab.cooldown <= 0.0:
+			# No cooldown means no duty cycle to bound; such an ability must
+			# not stun at all.
+			ab.applies_duration = 0.0
+			continue
+		ab.applies_duration = minf(ab.applies_duration,
+			ab.cooldown * STUN_DUTY_MAX)
+	return kit
 
 
 ## Kept for callers that have no hero in hand (previews, tests). A mage asked

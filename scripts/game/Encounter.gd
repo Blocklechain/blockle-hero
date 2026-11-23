@@ -109,8 +109,8 @@ const BOSS_SIZE: float = 1.55
 ## DAMAGE is deliberately the smallest of the three. A boss that kills in two
 ## hits is not a longer fight, it is a faster loading screen; the fight gets its
 ## weight from lasting, which is the health figure's job.
-const BOSS_HEALTH_MULT: float = 8.0
-const BOSS_DAMAGE_MULT: float = 1.35
+const BOSS_HEALTH_MULT: float = 4.0
+const BOSS_DAMAGE_MULT: float = 1.0
 const BOSS_ARMOUR_MULT: float = 1.6
 ## Elites are a half-step: big enough to notice, not big enough to be the boss.
 const ELITE_SIZE: float = 1.18
@@ -923,4 +923,11 @@ static func body_for(s: Spawn, tier: int) -> Combatant:
 	c.damage_scale = s.mercy
 	c.max_health *= hp_mult
 	c.health = c.max_health
+	# A BOSS HAS MORE HEALTH, NOT MORE HEALING. Ability.heal_fraction is a
+	# fraction of max_health, so without this an 8x boss pool turns a 25% heal
+	# into two normal health bars every cast — boss g039 on map 56 measured
+	# putting back 2.8 times its own already-inflated bar over one fight, which
+	# is unwinnable rather than hard. See Combatant.heal_scale.
+	if s.is_boss:
+		c.heal_scale = 1.0 / BOSS_HEALTH_MULT
 	return c
