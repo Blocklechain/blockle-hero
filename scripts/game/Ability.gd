@@ -64,6 +64,21 @@ enum Move {
 	RETREAT,   # the same but backwards, away from what you are facing
 }
 
+## DOES THIS ABILITY PLANT YOUR FEET?
+##
+## Casting used to root the champion for the whole clip — every ability, with
+## no way to say otherwise. On a phone, where the left thumb is steering and
+## the right is firing, that reads as the game dropping inputs: you press, the
+## hero stops dead in a pack, and the three-quarters of a second you spent
+## standing still is how you die.
+##
+## So the default is FALSE and movement continues through the cast. Rooted is
+## for the ones where standing still IS the cost — a heavy wind-up that should
+## be a commitment, or anything that moves you itself (a dash cannot also be
+## steered). See HeroController.use_ability and CAST_MOVE_SCALE for what
+## "continues" means: slower, and facing what you aimed at.
+var rooted: bool = false
+
 var move_kind: int = Move.NONE
 ## Metres. For CHARGE this is the furthest it will close; for BLINK/RETREAT the
 ## distance travelled.

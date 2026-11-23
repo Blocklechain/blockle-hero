@@ -79,6 +79,23 @@ var _dash_to: Vector2 = Vector2.ZERO
 var _dash_t: float = 0.0
 var _dash_time: float = 0.0
 var _busy_until: float = 0.0           # locked out while an ability plays
+## Whether the ability currently playing plants the feet. See Ability.rooted.
+var _cast_rooted: bool = true
+## The heading the cast was aimed at, held for its duration so movement cannot
+## rotate the hero off their own aim. NAN when nothing is being cast.
+var _cast_facing: float = NAN
+
+## How fast a champion moves while casting a non-rooted ability.
+##
+## NOT 1.0, and the reason is animation rather than balance: there is a single
+## AnimationPlayer here and no blend tree, so the cast clip REPLACES the run
+## clip for its duration — at full speed the body slides across the ground with
+## its legs still. At 55% the slide reads as a committed stride into the swing,
+## which is the look most mobile ARPGs settle on for exactly this reason.
+##
+## Fixing it properly means an AnimationTree with an upper-body mask over all
+## 139 rigs. That is a real piece of work and this is the honest interim.
+const CAST_MOVE_SCALE: float = 0.55
 var _facing: float = 0.0
 
 ## Metres walked since the last footstep cue. Steps are fired per DISTANCE, not
@@ -224,11 +241,28 @@ func use_ability(slot: int, facing_target: Vector2 = Vector2.INF) -> bool:
 	var ab: Ability = ability_in_slot(slot)
 	if ab != null and float(_cooldowns.get(ab.id, 0.0)) > 0.0:
 		return false
-	stop()
+	# A SELF-MOVING ABILITY IS ALWAYS ROOTED, whatever it declares: a dash that
+	# could also be steered would fight its own _advance_dash for the champion's
+	# position, and the loser is whichever ran last that frame.
+	_cast_rooted = ab == null or ab.rooted or ab.move_kind != Ability.Move.NONE
+	if _cast_rooted:
+		stop()
+	else:
+		# The PATH is dropped but the STICK is not. A click-to-move order was
+		# aimed at where the player wanted to be before they decided to cast,
+		# and resuming it afterwards sends them somewhere they have stopped
+		# wanting to go; a held stick is a live statement of intent.
+		_path = PackedVector2Array()
+		_leg = 0
 	if facing_target != Vector2.INF:
 		var d: Vector2 = facing_target - ground_position()
 		if d.length_squared() > 0.0001:
 			_facing = atan2(d.x, d.y)
+			# HELD FOR THE WHOLE CAST. Without this the facing snaps back to the
+			# direction of travel on the next frame, so a cone fired while
+			# running sideways comes out sideways — the aim the player took is
+			# discarded one frame after they took it.
+			_cast_facing = _facing
 	# The animation comes from the ability, which maps slots 1-3 onto the three
 	# clips every model is rigged with.
 	rig.set_state(ab.anim_state() if ab != null else HeroRig.State.ATTACK)
@@ -269,6 +303,16 @@ func _physics_process(delta: float) -> void:
 		_busy_until -= delta
 		if _dash_time > 0.0:
 			_advance_dash(delta)
+			_apply_facing(delta)
+			return
+		# THIS RETURN IS WHAT USED TO FREEZE THE CHAMPION. Every cast, for the
+		# length of its clip, with the stick held. Now only a rooted cast stops;
+		# anything else keeps walking at CAST_MOVE_SCALE while the clip plays.
+		if _cast_rooted:
+			_apply_facing(delta)
+			return
+		if _drive != Vector2.ZERO:
+			_drive_step(delta, CAST_MOVE_SCALE)
 		_apply_facing(delta)
 		return
 
@@ -370,7 +414,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	position = Vector3(next.x, terrain.height_at(next), next.y)
-	_facing = atan2(dir.x, dir.y)
+	_face_travel(dir)
 	_apply_facing(delta)
 
 	# Footsteps, metered by ground covered. `step` is the distance actually moved
@@ -483,7 +527,9 @@ func _place(p: Vector2) -> void:
 	position = Vector3(p.x, terrain.height_at(p), p.y)
 
 
-func _drive_step(delta: float) -> void:
+## `scale` slows the step without touching the stick's own magnitude — used
+## by the cast path so a non-rooted ability advances at CAST_MOVE_SCALE.
+func _drive_step(delta: float, scale: float = 1.0) -> void:
 	var here: Vector2 = ground_position()
 
 	# Same stun rule as the path follower: forced down to a walk, then slowed
@@ -491,7 +537,7 @@ func _drive_step(delta: float) -> void:
 	# differently depending on how the player happens to be moving is a bug.
 	var stunned: bool = is_stunned()
 	var base: float = WALK_SPEED if stunned else (RUN_SPEED if _drive_run else WALK_SPEED)
-	var speed: float = base * _drive.length()
+	var speed: float = base * _drive.length() * scale
 	if body != null:
 		speed *= body.move_multiplier()
 
@@ -514,14 +560,14 @@ func _drive_step(delta: float) -> void:
 		else:
 			# Wedged into a corner. Hold position but keep facing where the
 			# player is pushing, so the stick still feels connected.
-			_facing = atan2(_drive.x, _drive.y)
+			_face_travel(_drive)
 			_apply_facing(delta)
 			rig.set_locomotion(0.0)
 			rig.set_state(HeroRig.State.IDLE)
 			return
 
 	position = Vector3(next.x, terrain.height_at(next), next.y)
-	_facing = atan2(dir.x, dir.y)
+	_face_travel(dir)
 	_apply_facing(delta)
 
 	# Metered by ground actually covered, so the stun slow carries through.
@@ -552,6 +598,20 @@ func _lookahead(here: Vector2) -> int:
 	return -1
 
 
+## Turn to face the direction of travel — UNLESS a cast is holding the aim.
+##
+## Movement and aiming disagree the moment casting stopped rooting the feet:
+## the player lines a cone up on a pack, strafes, and without this the cone
+## leaves pointing wherever they happen to be walking. The aim they took wins
+## for the length of the cast; travel takes over again when it ends.
+func _face_travel(dir: Vector2) -> void:
+	if not is_nan(_cast_facing):
+		_facing = _cast_facing
+		return
+	if dir.length_squared() > 0.0001:
+		_facing = atan2(dir.x, dir.y)
+
+
 func _apply_facing(delta: float) -> void:
 	# Shortest-arc turn toward the heading, so crossing the +/-PI seam does not
 	# spin the hero the long way round.
@@ -573,6 +633,10 @@ func _on_rig_state_finished(st: int) -> void:
 			var ab: Ability = pending_cast
 			pending_cast = null
 			cast_landed.emit(ab)
+		# The cast is over: movement owns the facing again, and the next cast
+		# is free to root or not on its own terms.
+		_cast_facing = NAN
+		_cast_rooted = true
 		rig.set_state(HeroRig.State.IDLE)
 
 
@@ -624,6 +688,8 @@ func revive() -> void:
 	_dead = false
 	_busy_until = 0.0
 	pending_cast = null
+	_cast_facing = NAN
+	_cast_rooted = true
 	stop()
 	if rig != null:
 		rig.revive()
