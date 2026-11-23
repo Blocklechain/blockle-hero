@@ -422,11 +422,29 @@ func _an_enemy_reads_as_hurt() -> void:
 
 	var body: Combatant = Combatant.make("Target", Combatant.Team.ENEMY, 12,
 		Stats.make(10.0, 0.0, 0.0, 10.0), HeroClass.School.MELEE, 0.0, 0.0, 99)
+	# THE REGION IS ALREADY FULL OF ENEMIES. This section used to assert
+	# `_tracked.size() == 1` and then read `_tracked[0]`, which is only the
+	# dummy on an empty HUD — the real region spawns about ten, every one of
+	# them tracked, so the size check failed and the two `[0]` reads below
+	# inspected whichever SPAWNED enemy happened to be first. That reported
+	# three failures against working code: "a bar appeared over its head"
+	# read 100% because the enemy it looked at had never been hit.
+	#
+	# Same brittleness that made uitest report 0 failures while its whole
+	# campaign section was dead. Find the track by BODY.
+	var tracked_before: int = _hud._tracked.size()
 	_play.call("add_enemy", body, node)
 	await get_tree().process_frame
-	check("the HUD is tracking it", _hud._tracked.size() == 1)
+	var mine: Variant = _track_of(body)
+	check("the HUD is tracking it", mine != null,
+		"%d tracked before, %d after" % [tracked_before,
+			_hud._tracked.size()])
+	if mine == null:
+		return
+	check("...and it is one more than before",
+		_hud._tracked.size() == tracked_before + 1)
 	check("an untouched enemy carries no bar",
-		not (_hud._tracked[0].bar as ProgressBar).visible)
+		not (mine.bar as ProgressBar).visible)
 
 	var full: float = body.health
 	var floats_before: int = _hud._floats.size()
@@ -445,12 +463,12 @@ func _an_enemy_reads_as_hurt() -> void:
 	check("the swing reached it", body.health < full,
 		"%.0f -> %.0f of %.0f" % [full, body.health, body.max_health])
 	check("a bar appeared over its head",
-		(_hud._tracked[0].bar as ProgressBar).visible
-			and (_hud._tracked[0].bar as ProgressBar).value < 1.0,
-		"%.0f%%" % ((_hud._tracked[0].bar as ProgressBar).value * 100.0))
+		(mine.bar as ProgressBar).visible
+			and (mine.bar as ProgressBar).value < 1.0,
+		"%.0f%%" % ((mine.bar as ProgressBar).value * 100.0))
 	check("the bar is positioned over the enemy, on screen",
 		Rect2(Vector2.ZERO, get_viewport().get_visible_rect().size).has_point(
-			(_hud._tracked[0].bar as ProgressBar).position))
+			(mine.bar as ProgressBar).position))
 	check("a damage number floated off it",
 		_hud._floats.size() > floats_before,
 		"%d in flight" % _hud._floats.size())
@@ -472,12 +490,24 @@ func _an_enemy_reads_as_hurt() -> void:
 	# And death clears up after itself rather than leaving a bar in the air.
 	body._take_raw(body.max_health * 2.0, false, "test")
 	check("the kill registered", not body.alive)
+	# WAITS FOR THIS ENEMY'S TRACK TO GO, not for the list to empty. The old
+	# version waited on `_tracked.is_empty()`, which can never happen while the
+	# region's own living enemies are still being tracked — so it burned its
+	# full 4 s timeout and then failed.
 	var waited: float = 0.0
-	while _hud._tracked.size() > 0 and waited < 4.0:
+	while _track_of(body) != null and waited < 4.0:
 		await get_tree().process_frame
 		waited += get_process_delta_time()
 	check("the bar is cleared once the enemy is dead",
-		_hud._tracked.is_empty(), "after %.1fs" % waited)
+		_track_of(body) == null, "after %.1fs" % waited)
+
+
+## The track the HUD holds for this body, or null.
+func _track_of(body: Combatant) -> Variant:
+	for t in _hud._tracked:
+		if t.body == body:
+			return t
+	return null
 
 
 # ------------------------------------------------------------------------------

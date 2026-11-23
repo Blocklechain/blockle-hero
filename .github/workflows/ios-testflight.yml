@@ -209,14 +209,15 @@ jobs:
             "$GODOT" --headless --path . --script "tools/$t.gd"
           done
 
-          # The scene-based ones. hudtest is NOT here, for the same reason
-          # kindtest is not in the list above: it has three failing assertions
-          # about enemy health-bar tracking that PREDATE this list — verified
-          # by re-running it with scripts/ui/Hud.gd and scripts/game/Play.gd
-          # reverted to bce64a7, where it fails identically. Listing it would
-          # block every build; pretending it passes would be worse. It is named
-          # here so the omission is visible rather than silent.
-          for scn in scenes/PlayTest.tscn scenes/ThreadTest.tscn; do
+          # The scene-based ones. hudtest is IN now: its three "pre-existing
+          # failures" were a defect in the test, not in the HUD. It asserted
+          # `_tracked.size() == 1` and then read `_tracked[0]`, which only
+          # holds on an empty HUD — the real region spawns about seventeen
+          # enemies and tracks every one, so the size check failed and the bar
+          # assertions inspected whichever SPAWNED enemy sorted first (hence
+          # "a bar appeared over its head: 100%", on an enemy nothing had hit).
+          # It now finds its own enemy by body: "17 tracked before, 18 after".
+          for scn in tools/HudTest.tscn scenes/PlayTest.tscn scenes/ThreadTest.tscn; do
             echo "--- $scn"
             "$GODOT" --headless --path . "res://$scn"
           done
