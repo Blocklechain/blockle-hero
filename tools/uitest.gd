@@ -47,7 +47,10 @@ func _run() -> void:
 	var heroes: PackedStringArray = HeroRig.animated_heroes()
 	if heroes.is_empty():
 		print("no hero models found")
-		quit()
+	# GATES THE BUILD. This was a bare `quit()`, which always exits 0, so
+	# this harness counted its failures, printed them, and passed the
+	# build regardless. Five tests in CI had the same hole.
+		quit(1 if fails > 0 else 0)
 		return
 
 	await _screens_build(heroes); _ran += 1

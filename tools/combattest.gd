@@ -185,9 +185,10 @@ func _init() -> void:
 			== StatusEffect.Kind.STUN))
 
 	print("\n=== %d failure(s) ===" % fails)
-	quit()
-
-
+	# GATES THE BUILD. This was a bare `quit()`, which always exits 0, so
+	# this harness counted its failures, printed them, and passed the
+	# build regardless. Five tests in CI had the same hole.
+	quit(1 if fails > 0 else 0)
 func _titles(kit: Array[Ability]) -> PackedStringArray:
 	var out := PackedStringArray()
 	for a in kit:
