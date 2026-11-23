@@ -126,6 +126,12 @@ var _hold_index: int = -1
 ## stick jumping across the screen. Tracking position by index is what keeps
 ## the three input sources from stealing each other's fingers.
 var _stick: Joystick = null
+## PRELOADED BY PATH, not by class_name. Godot's global class cache is rebuilt
+## by the EDITOR, so a script added since the last editor run is invisible to a
+## headless `--script` harness and the whole file fails to PARSE. MiniMap.gd is
+## new, which is exactly that case.
+const MiniMapC := preload("res://scripts/ui/MiniMap.gd")
+var _minimap: Node = null
 var _free_touches: Dictionary = {}        # index -> Vector2
 var _pinch_prev: float = -1.0
 
@@ -186,6 +192,14 @@ func _ready() -> void:
 	_stick.name = "Joystick"
 	_stick.moved.connect(_on_stick)
 	add_child(_stick)
+
+	# THE MINIMAP, which until now existed and was loaded by nothing but its own
+	# test. It needs exactly two things from here and neither was being given:
+	# the terrain and layout it rasterises once (configure, below, once the
+	# region is built) and the champion's position every frame (_process).
+	_minimap = MiniMapC.new()
+	_minimap.name = "MiniMap"
+	add_child(_minimap)
 
 	_account = _resolve_roster()
 	_build_loot_ground()
@@ -324,6 +338,11 @@ func _on_world_ready(root: Node3D, ter: Terrain, plan: Layout) -> void:
 	}
 	_terrain = ter
 	_plan = plan
+	# Rasterised ONCE, here, because this is the first moment both halves exist.
+	# configure() is a no-op without a plan, so a region built without one
+	# simply has no map rather than a broken one.
+	if _minimap != null:
+		_minimap.configure(ter, plan)
 	_player_hero = pick
 	# BEFORE _populate, so the encounter builder places its packs relative to
 	# a party that already exists rather than to a lone champion who is about
@@ -1809,6 +1828,11 @@ func _process(d: float) -> void:
 	_auto_attack()
 	_think(d)
 	_advance_slam(d)
+	# The dot is the only part that moves. set_player() re-reads nothing and
+	# re-rasterises nothing — see MiniMap.rasterised, which the harness asserts
+	# stays at 1 across a hundred position updates.
+	if _minimap != null and _hero != null:
+		_minimap.set_player(_hero.ground_position())
 
 
 ## Swing at whatever is standing next to you, without being told.
