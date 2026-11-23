@@ -32,8 +32,44 @@ func _init() -> void:
 	hero.tick(2.1)
 	check("stun expires", not hero.is_stunned() and hero.can_act())
 
-	check("stuns refresh, never stack",
+	check("a second stun does not extend the first",
 		_stack_test(), "two 2s stuns != 4s")
+
+	# ---- A PACK MUST NOT TAKE THE GAME AWAY ---------------------------------
+	#
+	# THE BUG THIS EXISTS FOR, reported from build 45 as "unable to do any
+	# abilities or attack even while standing still". Every enemy was within
+	# the per-ability limit — Ability.STUN_DUTY_MAX caps a stun at half its own
+	# cooldown, and Shield Slam is 2 s on a 9 s cooldown, 22% — but apply()
+	# REFRESHED the stun, so a pack handed one along between its members and it
+	# never lapsed. Measured before the fix, over 30 s:
+	#
+	#     1 enemy 26%   2 enemies 46%   3 enemies 66%   5+ enemies 100%
+	#
+	# Packs in this game are four to six. A stun forces a WALK here rather than
+	# freezing, so the player could still move and never act — which is exactly
+	# how it was described.
+	#
+	# balancetest's own lockout check measured BOSS fights, one enemy at a
+	# time, and read 0 of 180. It could not see this. So the invariant lives
+	# here, in a harness CI gates on, and it is stated over pack sizes rather
+	# than per ability.
+	for pack in [1, 3, 5, 10, 20]:
+		var frac: float = _pack_lockout(pack)
+		check("%2d enemies cannot lock the champion out" % pack,
+			frac <= 0.55, "unable to act %.0f%% of 60 s" % (frac * 100.0))
+
+	# And the window that makes the bound hold at any pack size.
+	var imm := _mk("imm", Combatant.Team.PLAYER, 20, HeroClass.Kind.FIGHTER, 9)
+	imm.apply(StatusEffect.make(StatusEffect.Kind.STUN, 2.0, 0.0, "x"))
+	imm.tick(2.1)
+	check("a stun leaves immunity behind it", imm.stun_immunity > 0.0,
+		"%.2f s" % imm.stun_immunity)
+	imm.apply(StatusEffect.make(StatusEffect.Kind.STUN, 2.0, 0.0, "y"))
+	check("...so the next stun is refused", not imm.is_stunned())
+	imm.tick(Combatant.STUN_IMMUNITY + 0.1)
+	imm.apply(StatusEffect.make(StatusEffect.Kind.STUN, 2.0, 0.0, "z"))
+	check("...and allowed again once it lapses", imm.is_stunned())
 
 	print("\n=== damage ===")
 	var a := _mk("att", Combatant.Team.PLAYER, 20, HeroClass.Kind.FIGHTER, 2)
@@ -194,6 +230,43 @@ func _titles(kit: Array[Ability]) -> PackedStringArray:
 	for a in kit:
 		out.append(a.title)
 	return out
+
+
+## What fraction of a minute is this champion unable to act, with `n` enemies
+## each landing the same stun on its own cooldown?
+##
+## Phases are SPREAD rather than synchronised, because synchronised stuns all
+## land inside one another and hide the problem — the damaging case is enemies
+## taking turns, which is also what a real pack does.
+func _pack_lockout(n: int) -> float:
+	var slam: Ability = null
+	for ab in Ability.for_hero("", HeroClass.Kind.FIGHTER):
+		if ab.applies == StatusEffect.Kind.STUN:
+			slam = ab
+			break
+	if slam == null:
+		return 0.0
+	var me := _mk("packed", Combatant.Team.PLAYER, 20,
+		HeroClass.Kind.FIGHTER, 7)
+	var next: Array[float] = []
+	for i in range(n):
+		next.append(slam.cooldown * float(i) / float(n))
+	var step: float = 1.0 / 30.0
+	var locked: int = 0
+	var steps: int = 0
+	var t: float = 0.0
+	while t < 60.0:
+		for i in range(n):
+			if t >= next[i]:
+				me.apply(StatusEffect.make(StatusEffect.Kind.STUN,
+					slam.applies_duration, 0.0, "e%d" % i))
+				next[i] = t + slam.cooldown
+		me.tick(step)
+		steps += 1
+		if not me.can_act():
+			locked += 1
+		t += step
+	return float(locked) / maxf(float(steps), 1.0)
 
 
 func _stack_test() -> bool:

@@ -72,6 +72,41 @@ var alive: bool = true
 ## not put out a fire you are already on.
 var invulnerable: bool = false
 
+## ---- STUN DIMINISHING RETURNS -----------------------------------------------
+##
+## After a stun ENDS, this body cannot be stunned again for STUN_IMMUNITY
+## seconds. Without it a PACK locks you out permanently, and the numbers are not
+## close:
+##
+##   enemies   champion unable to act (30 s, Shield Slam: 2 s stun / 9 s cd)
+##         1   26%
+##         2   46%
+##         3   66%
+##         5   100%
+##        10   100%
+##
+## Each of those enemies is individually harmless by the per-ability rule —
+## Ability.STUN_DUTY_MAX caps one stun at half its own cooldown, and 2 s on a
+## 9 s cooldown is 22%. The lockout is not built by any single enemy: apply()
+## REFRESHES a stun rather than stacking it, so N enemies on independent
+## cooldowns hand the stun along between them and it simply never lapses. Packs
+## in this game are four to six.
+##
+## The symptom is a champion who can still WALK (a stun forces a walk here, it
+## does not freeze) and can never attack or cast — reported from the field as
+## "unable to do any abilities or attack even while standing still", which is
+## exactly what standing in a pack does.
+##
+## 2.4 s against the 2 s stun bounds the worst case near 45% however many
+## enemies are swinging, which leaves a stun genuinely punishing without ever
+## taking the game away from the player. Applied to EVERY combatant, not just
+## the player: hero and enemy resolve through the same code here by design, and
+## the mirror of this bug is a player chain-stunning a boss into a statue.
+const STUN_IMMUNITY: float = 2.4
+
+## Seconds of stun immunity left. Ticked down in tick(); set when a stun ends.
+var stun_immunity: float = 0.0
+
 ## Deterministic roll stream. Combat that reroll differently on replay cannot be
 ## debugged from a save, so crits and dodges come from the seeded hash too.
 var rng_seed: int = 0
@@ -131,6 +166,25 @@ func _roll() -> float:
 # ------------------------------------------------------------------------------
 
 func apply(effect: StatusEffect) -> void:
+	# A STUN IS NEVER EXTENDED, AND NEVER LANDS INSIDE THE IMMUNITY WINDOW.
+	#
+	# Both halves are needed and the first is the one that matters. An immunity
+	# window alone does nothing against a pack: five enemies on a 9 s cooldown
+	# land a 2 s stun every 1.8 s, so the REFRESH below pushed `remaining` back
+	# up before the stun ever lapsed — it never expired, so the window was never
+	# armed, and the measured lockout stayed at 100%.
+	#
+	# So an incoming stun is DROPPED while one is already running. The first
+	# stun gets its authored duration and nothing a second attacker does can
+	# lengthen it. "Refresh rather than stack" was written to stop one enemy
+	# compounding its own stun, and it does — but across many sources refresh
+	# IS stacking, just spelled differently.
+	#
+	# Together they bound the worst case at stun / (stun + STUN_IMMUNITY)
+	# regardless of how many enemies are swinging.
+	if effect != null and effect.kind == StatusEffect.Kind.STUN:
+		if stun_immunity > 0.0 or has(StatusEffect.Kind.STUN):
+			return
 	# Refresh rather than stack the same kind. Stacking stuns is how a player
 	# ends up unable to act for six seconds and puts the phone down.
 	for e in effects:
@@ -189,6 +243,7 @@ func outgoing_multiplier() -> float:
 func tick(delta: float) -> void:
 	if not alive:
 		return
+	stun_immunity = maxf(stun_immunity - delta, 0.0)
 	var expired: Array[StatusEffect] = []
 	for e in effects:
 		e.remaining -= delta
@@ -202,6 +257,11 @@ func tick(delta: float) -> void:
 		if e.is_expired():
 			expired.append(e)
 	for e in expired:
+		# ARMED AS THE STUN LAPSES, not when it was applied: the window has to
+		# start from the moment the player gets control back, or a long stun
+		# would eat its own immunity and the next one would land immediately.
+		if e.kind == StatusEffect.Kind.STUN:
+			stun_immunity = STUN_IMMUNITY
 		effects.erase(e)
 
 
