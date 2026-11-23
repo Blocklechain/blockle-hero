@@ -191,12 +191,16 @@ func _quiesce(me: HeroController) -> void:
 	if me.body == null:
 		return
 	me.body.stun_immunity = 600.0
-	var keep: Array[StatusEffect] = []
-	for e in me.body.effects:
-		if e.kind != StatusEffect.Kind.STUN \
-				and e.kind != StatusEffect.Kind.SLOW:
-			keep.append(e)
-	me.body.effects = keep
+	# EVERY effect, not just the control ones — and the health topped up.
+	#
+	# `invulnerable` is checked in strike() and take_hit() but deliberately NOT
+	# in _take_raw(), because that is also how a burn already stuck to you
+	# keeps burning (rolling out of the way should not cure poison). So a pack
+	# can still whittle an "invulnerable" champion down through a DoT, and slot
+	# 3 waits the longest because Rally has the longest cooldown. That is what
+	# failed build 50 after the stun fix had already landed.
+	me.body.effects = []
+	me.body.health = me.body.max_health
 
 
 ## Half a gesture, through Input, the way a thumb does.
