@@ -201,7 +201,7 @@ jobs:
                    slamtest shapetest modetest dresstest trainingtest \
                    questtest partytest selecttest navtest \
                    storeuitest iapmanifest benchtest reachtest \
-                   casttest dodgetest dodgeuitest defeattest \
+                   casttest dodgetest dodgeuitest defeattest keytest \
                    minimaptest storytest voicetest prefstest elitetest \
                    plateartest platefilltest \
                    classcheck; do
