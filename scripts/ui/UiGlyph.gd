@@ -36,6 +36,10 @@ enum Kind {
 	PARTY,       # two figures: Party
 	SCROLL,      # a contract
 	HOURGLASS,   # Training, which is a thing that happens over time
+	COG,         # Settings. Its own shape because the rail shows icons ONLY
+	             # when collapsed, so two destinations sharing a glyph are two
+	             # identical buttons — tools/navtest.gd asserts exactly that,
+	             # and caught Settings borrowing Training's hourglass.
 }
 
 ## The brand hexagon: pointed top and bottom, vertical sides. Taken from the
@@ -108,6 +112,7 @@ func _draw() -> void:
 		Kind.PARTY: _party(o, s)
 		Kind.SCROLL: _scroll(o, s)
 		Kind.HOURGLASS: _hourglass(o, s)
+		Kind.COG: _cog(o, s)
 
 
 func _poly(pts: PackedVector2Array, o: Vector2, s: float, scale: float,
@@ -295,6 +300,31 @@ func _scroll(o: Vector2, s: float) -> void:
 	for y in [0.10, 0.82]:
 		draw_rect(Rect2(o + Vector2(0.18, float(y)) * s,
 			Vector2(0.64 * s, 0.08 * s)), tint)
+
+
+## A COG: eight teeth around a ring with a hole in it.
+##
+## Drawn rather than lettered, like every other glyph here — this project ships
+## no 2D textures and no emoji in UI text. Eight teeth because at the 92 px the
+## rail draws these, six reads as a flower and twelve closes into a disc.
+func _cog(o: Vector2, s: float) -> void:
+	var c := Vector2(0.5, 0.5)
+	var teeth: int = 8
+	var r_in: float = 0.30
+	var r_out: float = 0.46
+	# The teeth, as wedges off the ring.
+	for i in range(teeth):
+		var a: float = TAU * float(i) / float(teeth)
+		var half: float = TAU / float(teeth) * 0.22
+		_poly(PackedVector2Array([
+			c + Vector2(cos(a - half), sin(a - half)) * r_in,
+			c + Vector2(cos(a - half), sin(a - half)) * r_out,
+			c + Vector2(cos(a + half), sin(a + half)) * r_out,
+			c + Vector2(cos(a + half), sin(a + half)) * r_in,
+		]), o, s, 1.0, tint)
+	# The ring itself, and the hole: an annulus drawn as a thick arc so the
+	# centre stays empty at any size rather than filling in on a small rail.
+	draw_arc(o + c * s, (r_in + 0.09) * s, 0.0, TAU, 28, tint, 0.17 * s, true)
 
 
 func _hourglass(o: Vector2, s: float) -> void:

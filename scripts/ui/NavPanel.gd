@@ -91,7 +91,7 @@ const ITEMS: Array = [
 	# the game at all — screen shake and the damage numbers — so a settings
 	# screen the panel does not list is an accessibility option nobody can
 	# reach. It was built, tested and connected to nothing until this row.
-	[UiRoute.SETTINGS, "Settings", UiGlyph.Kind.HOURGLASS],
+	[UiRoute.SETTINGS, "Settings", UiGlyph.Kind.COG],
 	# The front door, last. With no back button this is the only way back to
 	# the title screen, which is also the only way to pick a different save
 	# ending or simply to stop.
