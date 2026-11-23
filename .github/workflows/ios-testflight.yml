@@ -171,6 +171,27 @@ jobs:
           # need investigating on their own. Listing it would block every
           # build; pretending it passes would be worse. It is named here so
           # the omission is visible rather than silent.
+          #
+          # balancetest is NOT here either, and for a sharper reason: it is an
+          # INSTRUMENT, not a gate. It measures the campaign — 180 fights
+          # across three tiers — and currently reports five failures, of which
+          # three are one fact seen three ways: player power is bounded (level
+          # caps at 60, Loot.item_level caps gear at the champion's own level)
+          # while enemy scaling is not. Closing those needs a design decision
+          # about a player-power track, not a build that goes red until someone
+          # makes it. Run it by hand:
+          #   godot --headless --path . --script tools/balancetest.gd
+          # It went from eleven failures to five in this pass; see
+          # docs/BALANCE.md.
+          # THREE OF THESE TESTS ARE SCENES, NOT SCRIPTS, and running them the
+          # wrong way looks exactly like a hang: tools/{hudtest,playtest,
+          # threadtest}.gd `extends Node3D` and do their work in _ready(), so
+          # `--script` never calls anything — Godot falls through to its default
+          # main loop and sits there until the job times out, having printed
+          # only its version banner. I lost three "failures" to that before
+          # noticing they had produced no output at all.
+          #
+          # They run below, after the script loop, from their own scenes.
           for t in metatest combattest feedbacktest loottest storetest \
                    uitest campaigntest lanetest rewardtest encountertest \
                    dreadtest sticktest loadouttest movetest overflowtest \
@@ -180,9 +201,24 @@ jobs:
                    slamtest shapetest modetest dresstest trainingtest \
                    questtest partytest selecttest navtest \
                    storeuitest iapmanifest benchtest reachtest \
+                   casttest dodgetest dodgeuitest defeattest \
+                   minimaptest storytest voicetest prefstest elitetest \
+                   plateartest platefilltest \
                    classcheck; do
             echo "--- $t"
             "$GODOT" --headless --path . --script "tools/$t.gd"
+          done
+
+          # The scene-based ones. hudtest is NOT here, for the same reason
+          # kindtest is not in the list above: it has three failing assertions
+          # about enemy health-bar tracking that PREDATE this list — verified
+          # by re-running it with scripts/ui/Hud.gd and scripts/game/Play.gd
+          # reverted to bce64a7, where it fails identically. Listing it would
+          # block every build; pretending it passes would be worse. It is named
+          # here so the omission is visible rather than silent.
+          for scn in scenes/PlayTest.tscn scenes/ThreadTest.tscn; do
+            echo "--- $scn"
+            "$GODOT" --headless --path . "res://$scn"
           done
 
       - name: Export the Xcode project
