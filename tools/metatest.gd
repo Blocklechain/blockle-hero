@@ -153,9 +153,8 @@ func _init() -> void:
 	for h in HeroRig.all_loadable_heroes():
 		if not playable_set.has(h):
 			static_only.append(h)
-	check("roster is strictly smaller than the art set",
-		static_only.size() > 0 and heroes.size() < HeroRig.all_loadable_heroes().size(),
-		"%d playable, %d hidden" % [heroes.size(), static_only.size()])
+	# EVERY HERO THE PLAYER CAN GET MUST BE RIGGED. True in any build, so it is
+	# asserted unconditionally.
 	var unrigged_on_roster: int = 0
 	for h in heroes:
 		if not HeroRig.is_animated(h):
@@ -164,51 +163,62 @@ func _init() -> void:
 		unrigged_on_roster == 0,
 		"%d of %d without one" % [unrigged_on_roster, heroes.size()])
 
-	var hidden: String = static_only[0] if static_only.size() > 0 else ""
-	check("a hidden hero is not in the catalogue",
-		not r.is_playable(hidden), hidden)
-	check("gem unlock REFUSES a hidden hero",
-		r.unlock_with_gems(hidden) == "Unknown champion",
-		r.unlock_with_gems(hidden))
-	var leaked := PackedStringArray()
-	for h in r.owned_names():
-		if not playable_set.has(h):
-			leaked.append(h)
-	check("%d crystals + unlocks granted NO hidden hero" % 400,
-		leaked.is_empty(), "leaked: " + ", ".join(leaked))
+	# THE REST OF THIS SECTION NEEDS A HIDDEN HERO TO EXIST, and in a shipped
+	# build none does.
+	#
+	# The gate protects the 61 of 200 heroes that could not be auto-rigged: an
+	# unlock paying one out would hand the player a sliding T-pose. But only the
+	# 139 ANIMATED heroes are committed — HeroRig keeps a dev fallback to the
+	# authoring volume, so all 200 are loadable on a developer's Mac and exactly
+	# 139 are loadable anywhere else. So on a runner the art set EQUALS the
+	# playable roster, there is nothing hidden to reach, and every assertion
+	# below is either vacuous or false by construction. CI measured
+	# "139 playable, 0 hidden" and failed, correctly.
+	#
+	# Skipped rather than deleted: the day the unrigged set ships, this is
+	# exactly the gate that has to hold.
+	if static_only.is_empty():
+		print("  SKIP the roster gate — the art set equals the playable "
+			+ "roster (%d), so no hidden hero exists to protect against"
+			% heroes.size())
+	else:
+		check("roster is strictly smaller than the art set",
+			heroes.size() < HeroRig.all_loadable_heroes().size(),
+			"%d playable, %d hidden" % [heroes.size(), static_only.size()])
 
-	# The fallback: a save that already owns a hidden hero keeps it, and the
-	# static mesh still loads (procedurally animated, not a T-pose).
-	var legacy: Dictionary = r.to_dict()
-	legacy["owned"][hidden] = HeroProgress.create(hidden).to_dict()
-	var migrated := Roster.from_dict(legacy, heroes)
-	check("an OWNED hidden hero survives load", migrated.owns(hidden), hidden)
-	check("...is listed for the player", migrated.all_known_names().has(hidden),
-		"%d names listed" % migrated.all_known_names().size())
-	check("...but still cannot be re-granted", not migrated.is_playable(hidden))
-	# THE UNRIGGED SET IS NOT SHIPPED, so this is only asserted when it is
-	# actually present in res://.
-	#
-	# assets/heroes/ holds `animated/` and nothing else — the 441 MB unrigged
-	# raid export was deliberately never committed. HeroRig keeps a dev
-	# fallback to the authoring volume, so on a developer's Mac load_hero()
-	# finds it and this passed; on a runner there is no such volume and it
-	# failed. Passing locally and failing in CI is the exact bug bundlecheck
-	# exists to catch, and it stayed invisible for a second reason: metatest
-	# used to end in a bare `quit()`, which always exits 0 (see below).
-	#
-	# So it is skipped rather than deleted: if the unrigged set is ever
-	# shipped, the fallback path is worth checking again.
-	if DirAccess.dir_exists_absolute("res://assets/heroes/tex"):
+		var hidden: String = static_only[0]
+		check("a hidden hero is not in the catalogue",
+			not r.is_playable(hidden), hidden)
+		check("gem unlock REFUSES a hidden hero",
+			r.unlock_with_gems(hidden) == "Unknown champion",
+			r.unlock_with_gems(hidden))
+		var leaked := PackedStringArray()
+		for h in r.owned_names():
+			if not playable_set.has(h):
+				leaked.append(h)
+		check("%d crystals + unlocks granted NO hidden hero" % 400,
+			leaked.is_empty(), "leaked: " + ", ".join(leaked))
+
+		# The fallback: a save that already owns a hidden hero keeps it, and
+		# the static mesh still loads (procedurally animated, not a T-pose).
+		var legacy: Dictionary = r.to_dict()
+		legacy["owned"][hidden] = HeroProgress.create(hidden).to_dict()
+		var migrated := Roster.from_dict(legacy, heroes)
+		check("an OWNED hidden hero survives load", migrated.owns(hidden),
+			hidden)
+		check("...is listed for the player",
+			migrated.all_known_names().has(hidden),
+			"%d names listed" % migrated.all_known_names().size())
+		check("...but still cannot be re-granted",
+			not migrated.is_playable(hidden))
+
 		var fb := HeroRig.new()
 		root.add_child(fb)
 		var fb_ok: bool = fb.load_hero(hidden)
-		check("...and its tex/ model still loads", fb_ok and not fb.is_rigged,
+		check("...and its tex/ model still loads",
+			fb_ok and not fb.is_rigged,
 			"loaded=%s rigged=%s" % [fb_ok, fb.is_rigged])
 		fb.queue_free()
-	else:
-		print("  SKIP ...and its tex/ model still loads "
-			+ "(res://assets/heroes/tex is not shipped)")
 
 	# --- THE COMPLIANCE TEST -------------------------------------------
 	print("\n=== published crystal odds vs actual rolls ===")
