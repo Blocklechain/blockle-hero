@@ -333,6 +333,33 @@ var party: PackedStringArray = PackedStringArray()
 ## How many slots have been paid for. The first is free.
 var party_unlocked: int = 1
 
+## STORY BEATS ALREADY HEARD, so a once-in-a-campaign line stays once.
+##
+## A set, stored as a Dictionary because GDScript has no Set and JSON has no
+## tuples. Persisted (see to_dict/from_dict) rather than kept as object meta:
+## meta is not serialised, so a "first death" latched there re-arms every time
+## the game is launched, which is the one thing that line must not do.
+##
+## Read with a default and written as plain strings, so an OLDER save simply
+## arrives with none heard — no SAVE_VERSION bump, and a player mid-campaign
+## hears a beat once more rather than losing their save.
+var story_seen: Dictionary = {}
+
+
+## Has this beat already been spoken on this account?
+func story_heard(beat: String) -> bool:
+	return story_seen.has(beat)
+
+
+## Mark a beat spoken. Returns false if it already was, so a caller can say
+## `if roster.mark_story("first_death"):` and get the once-only test and the
+## recording in one line.
+func mark_story(beat: String) -> bool:
+	if beat.is_empty() or story_seen.has(beat):
+		return false
+	story_seen[beat] = true
+	return true
+
 
 func _ensure_party() -> void:
 	while party.size() < Party.SLOTS_MAX:
@@ -844,6 +871,7 @@ func to_dict() -> Dictionary:
 		"quests": _quests_to_list(),
 		"party": party,
 		"party_unlocked": party_unlocked,
+		"story_seen": story_seen.keys(),
 		"quest_counter": quest_counter,
 		"quest_seed": quest_seed,
 		"crystals_opened": crystals_opened,
@@ -898,6 +926,11 @@ static func from_dict(d: Dictionary, playable: PackedStringArray) -> Roster:
 		r.mode_records[String(k)] = int(recs[k])
 	r.slots_unlocked = clampi(int(d.get("slots_unlocked", 1)), 1,
 		Training.SLOTS_MAX)
+	# A LIST on disk, a set in memory. Absent in every save written before the
+	# story existed, which is why this defaults rather than requiring a version
+	# bump — an old save just has nothing heard yet.
+	for b in d.get("story_seen", []):
+		r.story_seen[String(b)] = true
 	for sl in d.get("training", []):
 		if sl is Dictionary:
 			r.training_slots.append(Training.Slot.from_dict(sl))

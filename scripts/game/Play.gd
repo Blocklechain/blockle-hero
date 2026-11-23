@@ -392,23 +392,89 @@ func _give_combat_body(name: String) -> void:
 	_remark()
 
 
-## Said once per SESSION, not once per death. Story.first_death() is written as
-## the moment a player learns this game can kill them; replaying it on the
-## fortieth death would turn the one line with weight behind it into furniture.
+## DYING ENDS THE RUN. Until this handler existed nothing did: the only listener
+## for champion_died anywhere was Hud._on_champion_died, which flashes the
+## vignette, locks the keys and writes "Your champion has fallen" — and then the
+## game sat there forever with a corpse on the floor and no way out but the side
+## menu. A loss that the game does not acknowledge is not a loss.
 ##
-## Once per session and not once per account, which is weaker than it should be:
-## the latch is object meta, and Roster.to_dict() does not persist meta, so
-## quitting and returning re-arms it. Doing better means a persisted flag in the
-## save format, and bumping SAVE_VERSION for one line of narration is not a
-## trade worth making without asking.
+## WHAT DEFEAT COSTS, and deliberately what it does not:
+##
+##   * the map is NOT marked cleared — _clear_region() is the only path that
+##     calls record_map_cleared(), and defeat does not go through it, so the
+##     gate stays shut and the next region stays sealed;
+##   * everything already banked is KEPT. Gold, experience and drops land in
+##     the roster per kill, not at the end, so they are already saved. Taking
+##     them back would mean a special un-banking path whose only purpose is
+##     punishing the player twice for the same death.
+##
+## It routes through the SAME summary and screen a clear does, with
+## "defeat": true and no next stage, rather than a second screen that would
+## have to be kept in step with this one forever.
 func _on_champion_died() -> void:
-	if mode != GameMode.Id.CAMPAIGN or _account == null:
-		return
-	if _account.has_meta("story_first_death"):
-		return
-	_account.set_meta("story_first_death", true)
 	NarrationC.boot(self)
-	NarrationC.say_story("first_death")
+	# The first death on this account gets the one line written for it.
+	# Story.first_death() is the moment a player learns the game can kill them;
+	# on the fortieth death it is furniture. Roster.mark_story() is the test and
+	# the record in one call, and it PERSISTS — object meta does not survive a
+	# save, so a latch there re-arms on every launch.
+	if mode == GameMode.Id.CAMPAIGN and _account != null \
+			and _account.mark_story("first_death"):
+		_account.save()
+		NarrationC.say_story("first_death")
+
+	if _ending:
+		return
+	_ending = true
+	# NOT IMMEDIATELY. The death clip, the vignette flash and the line all want
+	# the same couple of seconds, and cutting to a summary over the top of them
+	# throws away the only moment the game has to land the loss.
+	var wait := get_tree().create_timer(DEFEAT_HOLD)
+	wait.timeout.connect(_finish_defeat)
+
+
+## How long the corpse stays on screen before the summary arrives.
+const DEFEAT_HOLD: float = 2.8
+
+## Latched so a second death — a partner dying in the same frame, or the body
+## re-emitting on a status tick — cannot queue two summaries.
+var _ending: bool = false
+
+
+func _finish_defeat() -> void:
+	if _account == null:
+		return
+	_bank_record()
+	_account.save()
+	var summary: Dictionary = {
+		"region": region_index,
+		"tier": tier,
+		"mode": mode,
+		"mode_name": GameMode.name_of(mode),
+		"wave": _wave + 1,
+		"hero": _hero.rig.hero_name if _hero != null and _hero.rig != null
+			else hero,
+		"kills": _kills,
+		"gold": _account.wallet.balance(Wallet.Kind.GOLD)
+			- int(_snapshot.get("gold", 0)),
+		"items": _account.stash.items.size()
+			- int(_snapshot.get("items", 0)),
+		"levels": (_hero.body.level if _hero != null and _hero.body != null
+			else 1) - int(_snapshot.get("level", 1)),
+		"crystals": 0,
+		"cleared": _wave,
+		"total": GameMode.wave_count(mode),
+		"cleared_this_run": false,
+		"elites_killed": _elites_killed,
+		"depth_reached": _wave if mode == GameMode.Id.DESCENT else 0,
+		# THE TWO THAT MAKE IT A DEFEAT. There is nowhere to advance to, and
+		# the screen reads `defeat` to choose its headline.
+		"defeat": true,
+		"next": -1,
+	}
+	_merge_drop_keys(summary)
+	_apply_quests(summary)
+	region_cleared.emit(summary)
 
 
 ## The sweep is over — hand the region to the player.

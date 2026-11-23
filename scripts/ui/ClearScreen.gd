@@ -72,8 +72,17 @@ func show_summary(summary: Dictionary) -> void:
 	pad.add_child(col)
 
 	var region: int = int(_summary.get("region", 0))
-	var title := HeroTheme.label("REGION CLEARED", HeroTheme.F_TITLE,
-		HeroTheme.ACCENT)
+	# THE SAME SCREEN REPORTS A LOSS. A champion's death now ends the run
+	# (Play._on_champion_died), and it arrives here rather than through a second
+	# screen that would have to be kept in step with this one forever — so the
+	# headline and its colour are the one thing that has to change. Telling a
+	# player "REGION CLEARED" over a run they died in would be a lie the stats
+	# underneath it immediately contradict.
+	var lost: bool = bool(_summary.get("defeat", false))
+	var title := HeroTheme.label(
+		"YOUR CHAMPION FELL" if lost else "REGION CLEARED",
+		HeroTheme.F_TITLE,
+		HeroTheme.DANGER if lost else HeroTheme.ACCENT)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(title)
 	_rows.append(title)
