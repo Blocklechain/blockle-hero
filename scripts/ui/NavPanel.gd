@@ -87,6 +87,11 @@ const ITEMS: Array = [
 	# The store is placed late deliberately: putting it first is what a game
 	# does when the purchase matters more than the game.
 	[UiRoute.STORE, "Store", UiGlyph.Kind.GEM],
+	# SETTINGS. Two of its eight controls decide whether some people can play
+	# the game at all — screen shake and the damage numbers — so a settings
+	# screen the panel does not list is an accessibility option nobody can
+	# reach. It was built, tested and connected to nothing until this row.
+	[UiRoute.SETTINGS, "Settings", UiGlyph.Kind.HOURGLASS],
 	# The front door, last. With no back button this is the only way back to
 	# the title screen, which is also the only way to pick a different save
 	# ending or simply to stop.

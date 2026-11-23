@@ -1,5 +1,11 @@
 extends Node3D
 
+## Preloaded by path, not by bare class_name: these are newer than the
+## editor's global class cache, and a headless harness that loads this
+## file directly fails to PARSE on a bare name. See tools/classcheck.gd.
+const NarrationC := preload("res://scripts/game/Narration.gd")
+const StoryC := preload("res://scripts/game/Story.gd")
+
 # Preloaded rather than relied on by class_name: a newly added script is not in
 # Godot's global class cache until the editor has reimported, and every
 # headless harness that loads this scene would fail to PARSE until someone
@@ -377,7 +383,32 @@ func _give_combat_body(name: String) -> void:
 	_loot.champion_level = body.level
 	_hero.setup_combat(body, cls, name)
 	_hero.cast_landed.connect(_on_cast_landed)
+	# THE DEATH BEAT. Play.gd had no listener for this signal at all — the only
+	# one anywhere is Hud._on_champion_died, which flashes the vignette and
+	# locks the keys. (Nothing ends the RUN on death either; that is a separate
+	# gap and not something a narration hook should quietly decide.)
+	if not _hero.champion_died.is_connected(_on_champion_died):
+		_hero.champion_died.connect(_on_champion_died)
 	_remark()
+
+
+## Said once per SESSION, not once per death. Story.first_death() is written as
+## the moment a player learns this game can kill them; replaying it on the
+## fortieth death would turn the one line with weight behind it into furniture.
+##
+## Once per session and not once per account, which is weaker than it should be:
+## the latch is object meta, and Roster.to_dict() does not persist meta, so
+## quitting and returning re-arms it. Doing better means a persisted flag in the
+## save format, and bumping SAVE_VERSION for one line of narration is not a
+## trade worth making without asking.
+func _on_champion_died() -> void:
+	if mode != GameMode.Id.CAMPAIGN or _account == null:
+		return
+	if _account.has_meta("story_first_death"):
+		return
+	_account.set_meta("story_first_death", true)
+	NarrationC.boot(self)
+	NarrationC.say_story("first_death")
 
 
 ## The sweep is over — hand the region to the player.
@@ -386,6 +417,24 @@ func _on_flyover_done() -> void:
 	_cam.snap_to_target()
 	_hud.set_message("Drag anywhere on the left to move. The keys on the "
 		+ "right are your four actions. Pinch to zoom.")
+
+	# THE STORY OPENS HERE, once the player actually holds the region. After the
+	# sweep rather than during it: the flyover already has the camera's whole
+	# attention, and a line delivered over a loading screen is a line nobody
+	# hears.
+	#
+	# Until this call the entire narration system — Story.gd, Narration.gd and
+	# all 71 rendered voice lines — was loaded by nothing but its own tests.
+	if mode == GameMode.Id.CAMPAIGN:
+		NarrationC.boot(self)
+		var act: int = Campaign.act_of(region_index)
+		# The act's opening only on the act's FIRST map. Campaign.stage_in_act
+		# is 0-based within the act, so without this the same speech plays on
+		# all ten maps of the act.
+		if Campaign.stage_in_act(region_index) == 0:
+			NarrationC.say_story("act_open", act)
+		if StoryC.has_region_flavour(region_index):
+			NarrationC.say_story("region_flavour", act, region_index)
 
 
 ## Put the veteran rings on the champion, or take them off.
@@ -526,6 +575,8 @@ var _awake: Dictionary = {}
 var _clock: float = 0.0
 ## The enemy id of this map's boss, -1 once it is dead or was never placed.
 var _boss_id: int = -1
+## Has this region's boss already had its line? One per region.
+var _taunted: bool = false
 var _kills: int = 0
 ## WHAT THIS RUN PRODUCED, for the quest board. Counted here rather than
 ## reconstructed afterwards: the stash cannot tell you WHICH region a piece
@@ -711,6 +762,15 @@ func _think(delta: float) -> void:
 			continue
 
 		if is_boss and _slam_cd <= 0.0 and gap <= SLAM_RANGE:
+			# THE BOSS SPEAKS, ONCE. Fired on its first slam rather than on
+			# aggro, because aggro happens at AGGRO_BOSS range where the player
+			# may still be deciding whether to walk in — and _taunted latches
+			# so a long fight is not the same sentence over and over.
+			if not _taunted and mode == GameMode.Id.CAMPAIGN:
+				_taunted = true
+				NarrationC.boot(self)
+				NarrationC.say_story("boss_taunt",
+					Campaign.act_of(region_index))
 			_begin_slam(foe, aim)
 			continue
 
@@ -1339,6 +1399,13 @@ func _clear_region() -> void:
 	var crystals: int = _account.record_map_cleared(tier, region_index)
 	_account.save()
 
+	# AND THE ACT CLOSES. Only on the act's LAST map, by the same argument as
+	# act_open above: maps_per_act() - 1 is the final stage inside an act, and
+	# without the test the closing speech plays on every map of it.
+	if Campaign.stage_in_act(region_index) == Campaign.maps_per_act() - 1:
+		NarrationC.boot(self)
+		NarrationC.say_story("act_close", Campaign.act_of(region_index))
+
 	var summary: Dictionary = {
 		"region": region_index,
 		"tier": tier,
@@ -1377,6 +1444,8 @@ func _next_wave() -> void:
 		return
 	_wave += 1
 	_boss_id = -1
+	# A new wave brings a new boss, so it is allowed its own line.
+	_taunted = false
 	# A new wave is a new set of packs. Without this, pack ids from the last
 	# wave stay marked awake and the newcomers all charge from the moment
 	# they appear.

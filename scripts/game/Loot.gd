@@ -1,5 +1,10 @@
 class_name Loot
 extends RefCounted
+
+## Preloaded by path, not by bare class_name: Affix.gd is newer than the
+## editor's global class cache, and every headless harness loads this file
+## directly. See tools/classcheck.gd.
+const AffixC := preload("res://scripts/game/Affix.gd")
 # ------------------------------------------------------------------------------
 # Killing a thing, and gaining a thing.
 #
@@ -140,6 +145,11 @@ static func roll(region_seed: int, kill_index: int, enemy_level: int, tier: int,
 	var rarity: int = mini(Campaign.roll_rarity(region_seed, kill_index, tier),
 		rarity_ceiling(tier))
 	d.item = Item.roll(region_seed, ITEM_ROLL_BASE + kill_index, ilvl, rarity)
+	# AFFIXES. Dressed immediately after the roll, which is the only place
+	# Affix.dress() may be called (it keys off the item's own id so a drop is
+	# the same item after a reload). Until this line the entire affix system
+	# was loaded by nothing but its own test.
+	AffixC.dress(d.item)
 	return d
 
 

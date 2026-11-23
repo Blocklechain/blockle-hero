@@ -1,6 +1,8 @@
 class_name UiShell
 extends Node
 
+const SettingsScreenC := preload("res://scripts/ui/SettingsScreen.gd")
+
 # Preloaded by path: a new class_name is absent from Godot's global class
 # cache until the editor reimports, and the headless UI harnesses load this
 # script directly.
@@ -321,6 +323,10 @@ func _make_screen(route: String) -> UiScreen:
 		UiRoute.QUESTS: return QuestScreen.new()
 		UiRoute.PARTY: return PartyScreen.new()
 		UiRoute.STORE: return StoreScreen.new()
+		# Preloaded by path: SettingsScreen is newer than the editor's
+		# global class cache, so a bare class_name fails to PARSE in every
+		# headless harness.
+		UiRoute.SETTINGS: return SettingsScreenC.new()
 	push_error("UiShell: no screen for route '%s'" % route)
 	return null
 

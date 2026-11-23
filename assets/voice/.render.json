@@ -1,0 +1,573 @@
+{
+ "lines": {
+  "act_01_close_1": {
+   "beat": "narrator",
+   "bytes": 152444,
+   "hash": "15999cc510ae7584",
+   "seconds": 3.175,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_01_close_2": {
+   "beat": "narrator",
+   "bytes": 350444,
+   "hash": "45d940513107b316",
+   "seconds": 7.3,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_01_open_1": {
+   "beat": "narrator",
+   "bytes": 336044,
+   "hash": "87164a736efa7bc5",
+   "seconds": 7.0,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_01_open_2": {
+   "beat": "narrator",
+   "bytes": 345644,
+   "hash": "624cd91045df3552",
+   "seconds": 7.2,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_01_taunt": {
+   "beat": "boss",
+   "bytes": 298844,
+   "hash": "ada797657019345e",
+   "seconds": 6.225,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_02_close_1": {
+   "beat": "narrator",
+   "bytes": 196844,
+   "hash": "c4f939095a47fc0d",
+   "seconds": 4.1,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_02_close_2": {
+   "beat": "narrator",
+   "bytes": 310844,
+   "hash": "5ef05026de128b50",
+   "seconds": 6.475,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_02_open_1": {
+   "beat": "narrator",
+   "bytes": 368444,
+   "hash": "10613b99edf3eab2",
+   "seconds": 7.675,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_02_open_2": {
+   "beat": "narrator",
+   "bytes": 354044,
+   "hash": "0564eb6bb9669bde",
+   "seconds": 7.375,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_02_taunt": {
+   "beat": "boss",
+   "bytes": 276044,
+   "hash": "b2a9e531f1ce8e70",
+   "seconds": 5.75,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_03_close_1": {
+   "beat": "narrator",
+   "bytes": 278444,
+   "hash": "0bf5cc19be806871",
+   "seconds": 5.8,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_03_open_1": {
+   "beat": "narrator",
+   "bytes": 319244,
+   "hash": "cae41505e8ab9499",
+   "seconds": 6.65,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_03_open_2": {
+   "beat": "narrator",
+   "bytes": 346844,
+   "hash": "75c5a37c47fc6598",
+   "seconds": 7.225,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_03_taunt": {
+   "beat": "boss",
+   "bytes": 244844,
+   "hash": "4f2043be40508469",
+   "seconds": 5.1,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_04_close_1": {
+   "beat": "narrator",
+   "bytes": 247244,
+   "hash": "477d93f7d44f1889",
+   "seconds": 5.15,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_04_close_2": {
+   "beat": "narrator",
+   "bytes": 260444,
+   "hash": "aaefae28be48ecfd",
+   "seconds": 5.425,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_04_open_1": {
+   "beat": "narrator",
+   "bytes": 326444,
+   "hash": "bd2dc38790a7fcb3",
+   "seconds": 6.8,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_04_open_2": {
+   "beat": "narrator",
+   "bytes": 255644,
+   "hash": "caf78f8f33385b8f",
+   "seconds": 5.325,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_04_taunt": {
+   "beat": "boss",
+   "bytes": 240044,
+   "hash": "0327958d11d6ce21",
+   "seconds": 5.0,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_05_close_1": {
+   "beat": "narrator",
+   "bytes": 334844,
+   "hash": "32a93a7eeba36e9b",
+   "seconds": 6.975,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_05_close_2": {
+   "beat": "narrator",
+   "bytes": 213644,
+   "hash": "4fcccfd396dcc972",
+   "seconds": 4.45,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_05_open_1": {
+   "beat": "narrator",
+   "bytes": 324044,
+   "hash": "c9454df4816d4c09",
+   "seconds": 6.75,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_05_open_2": {
+   "beat": "narrator",
+   "bytes": 309644,
+   "hash": "cd49f4e8b4e4c00a",
+   "seconds": 6.45,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_05_taunt": {
+   "beat": "boss",
+   "bytes": 315644,
+   "hash": "8faeaca52dba7b28",
+   "seconds": 6.575,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_06_close_1": {
+   "beat": "narrator",
+   "bytes": 229244,
+   "hash": "682bf5b41bdbe140",
+   "seconds": 4.775,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_06_close_2": {
+   "beat": "narrator",
+   "bytes": 121244,
+   "hash": "42fe89a528ab7ec1",
+   "seconds": 2.525,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_06_open_1": {
+   "beat": "narrator",
+   "bytes": 319244,
+   "hash": "8289133a59f41ec0",
+   "seconds": 6.65,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_06_open_2": {
+   "beat": "narrator",
+   "bytes": 259244,
+   "hash": "a9578417dec6f75f",
+   "seconds": 5.4,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_06_taunt": {
+   "beat": "boss",
+   "bytes": 258044,
+   "hash": "195a8bdacd5bfe46",
+   "seconds": 5.375,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_07_close_1": {
+   "beat": "narrator",
+   "bytes": 248444,
+   "hash": "4c0d03062ac62a4d",
+   "seconds": 5.175,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_07_close_2": {
+   "beat": "narrator",
+   "bytes": 243644,
+   "hash": "3562e85a8677c341",
+   "seconds": 5.075,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_07_open_1": {
+   "beat": "narrator",
+   "bytes": 333644,
+   "hash": "d4932dc65619dd14",
+   "seconds": 6.95,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_07_open_2": {
+   "beat": "narrator",
+   "bytes": 328844,
+   "hash": "f1f25a4c22908005",
+   "seconds": 6.85,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_07_taunt": {
+   "beat": "boss",
+   "bytes": 247244,
+   "hash": "0bccedafad185c31",
+   "seconds": 5.15,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_08_close_1": {
+   "beat": "narrator",
+   "bytes": 288044,
+   "hash": "271e64024a95564f",
+   "seconds": 6.0,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_08_close_2": {
+   "beat": "narrator",
+   "bytes": 277244,
+   "hash": "a5f99f53c81bc9fa",
+   "seconds": 5.775,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_08_open_1": {
+   "beat": "narrator",
+   "bytes": 356444,
+   "hash": "5079a1ee78247fc7",
+   "seconds": 7.425,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_08_open_2": {
+   "beat": "narrator",
+   "bytes": 284444,
+   "hash": "0c7b6a4662a737eb",
+   "seconds": 5.925,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_08_taunt": {
+   "beat": "boss",
+   "bytes": 328844,
+   "hash": "7e20cbbe650f79de",
+   "seconds": 6.85,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_09_close_1": {
+   "beat": "narrator",
+   "bytes": 319244,
+   "hash": "ecb4dfefdcd813c6",
+   "seconds": 6.65,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_09_open_1": {
+   "beat": "narrator",
+   "bytes": 339644,
+   "hash": "baddc03a238baaa2",
+   "seconds": 7.075,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_09_open_2": {
+   "beat": "narrator",
+   "bytes": 306044,
+   "hash": "e1b3815415231701",
+   "seconds": 6.375,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_09_taunt": {
+   "beat": "boss",
+   "bytes": 224444,
+   "hash": "6aec737e7bbb9035",
+   "seconds": 4.675,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "act_10_close_1": {
+   "beat": "narrator",
+   "bytes": 332444,
+   "hash": "fa12760423436129",
+   "seconds": 6.925,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_10_close_2": {
+   "beat": "narrator",
+   "bytes": 384044,
+   "hash": "f9c65841c9cbcb1e",
+   "seconds": 8.0,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_10_open_1": {
+   "beat": "narrator",
+   "bytes": 372044,
+   "hash": "0bb58f1b2a212b70",
+   "seconds": 7.75,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_10_open_2": {
+   "beat": "narrator",
+   "bytes": 355244,
+   "hash": "6e984dbf9df4a6eb",
+   "seconds": 7.4,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "act_10_taunt": {
+   "beat": "boss",
+   "bytes": 319244,
+   "hash": "64cabc95c765f245",
+   "seconds": 6.65,
+   "speed": 1.0,
+   "voice": "am_michael"
+  },
+  "boss_near": {
+   "beat": "narrator",
+   "bytes": 234044,
+   "hash": "e2dcd67cd354a9bf",
+   "seconds": 4.875,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "champion_down": {
+   "beat": "narrator",
+   "bytes": 198044,
+   "hash": "dfe7767811a01d30",
+   "seconds": 4.125,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "first_death": {
+   "beat": "narrator",
+   "bytes": 381644,
+   "hash": "639441014ecc9d3f",
+   "seconds": 7.95,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_000_flavour": {
+   "beat": "narrator",
+   "bytes": 278444,
+   "hash": "ca4032897f9b3cb9",
+   "seconds": 5.8,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_003_flavour": {
+   "beat": "narrator",
+   "bytes": 264044,
+   "hash": "0b19f3ffb2a97187",
+   "seconds": 5.5,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_005_flavour": {
+   "beat": "narrator",
+   "bytes": 276044,
+   "hash": "1590d010f1ad49cb",
+   "seconds": 5.75,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_008_flavour": {
+   "beat": "narrator",
+   "bytes": 265244,
+   "hash": "624ca6c01149daa0",
+   "seconds": 5.525,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_018_flavour": {
+   "beat": "narrator",
+   "bytes": 234044,
+   "hash": "f9ec73b12b513571",
+   "seconds": 4.875,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_028_flavour": {
+   "beat": "narrator",
+   "bytes": 232844,
+   "hash": "8163bf3f1b184fc3",
+   "seconds": 4.85,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_035_flavour": {
+   "beat": "narrator",
+   "bytes": 337244,
+   "hash": "cecb03ca2e9fb8ae",
+   "seconds": 7.025,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_038_flavour": {
+   "beat": "narrator",
+   "bytes": 283244,
+   "hash": "7b0c96a8c0bba76f",
+   "seconds": 5.9,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_048_flavour": {
+   "beat": "narrator",
+   "bytes": 265244,
+   "hash": "d6fa779af7edcb19",
+   "seconds": 5.525,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_058_flavour": {
+   "beat": "narrator",
+   "bytes": 266444,
+   "hash": "caaca709d9ffba28",
+   "seconds": 5.55,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_065_flavour": {
+   "beat": "narrator",
+   "bytes": 286844,
+   "hash": "7a1ac1eaecc203a6",
+   "seconds": 5.975,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_068_flavour": {
+   "beat": "narrator",
+   "bytes": 296444,
+   "hash": "d8cf75da427b8998",
+   "seconds": 6.175,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_078_flavour": {
+   "beat": "narrator",
+   "bytes": 282044,
+   "hash": "dc43d10b0f836d88",
+   "seconds": 5.875,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_088_flavour": {
+   "beat": "narrator",
+   "bytes": 243644,
+   "hash": "022e9c64cd26e485",
+   "seconds": 5.075,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_095_flavour": {
+   "beat": "narrator",
+   "bytes": 247244,
+   "hash": "077b81ef71c6e90a",
+   "seconds": 5.15,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_098_flavour": {
+   "beat": "narrator",
+   "bytes": 268844,
+   "hash": "2081fe3ce696cc3a",
+   "seconds": 5.6,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "map_099_flavour": {
+   "beat": "narrator",
+   "bytes": 248444,
+   "hash": "1fb1b8fc4804c98b",
+   "seconds": 5.175,
+   "speed": 0.92,
+   "voice": "bm_george"
+  },
+  "quest_offered": {
+   "beat": "herald",
+   "bytes": 247244,
+   "hash": "67a641322d78501e",
+   "seconds": 5.15,
+   "speed": 1.0,
+   "voice": "bm_lewis"
+  },
+  "quest_paid": {
+   "beat": "herald",
+   "bytes": 220844,
+   "hash": "34522a0ffde99fe0",
+   "seconds": 4.6,
+   "speed": 1.0,
+   "voice": "bm_lewis"
+  },
+  "tier_cleared": {
+   "beat": "narrator",
+   "bytes": 322844,
+   "hash": "3dfa555f156c9ec0",
+   "seconds": 6.725,
+   "speed": 0.92,
+   "voice": "bm_george"
+  }
+ },
+ "rate": 24000
+}

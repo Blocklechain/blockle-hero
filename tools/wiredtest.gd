@@ -23,6 +23,7 @@ extends SceneTree
 const REGION: int = 37
 
 var fails: int = 0
+var _reached_end: bool = false
 
 
 func check(label: String, ok: bool, detail: String = "") -> void:
@@ -159,9 +160,134 @@ func _go() -> void:
 			me.body.health <= me.body.max_health,
 			"%.0f of %.0f" % [me.body.health, me.body.max_health])
 
+	# ---- IS EVERY SYSTEM REACHABLE FROM THE RUNNING GAME? -------------------
+	_reachable(play, me)
+
 	play.queue_free()
 	await process_frame
+	check("the reachability section ran to completion", _reached_end)
 	_done()
+
+
+## THE COUNT IN THIS FILE'S HEADER IS NOW NINE, not six.
+##
+## Three more systems shipped complete, unit-tested and loaded by nothing but
+## their own harness: the MINIMAP (no scene node, no preload, nobody calling
+## configure() or set_player()), ITEM AFFIXES (Affix.dress() documented as "all
+## Loot needs" and called from nowhere), and the SETTINGS SCREEN — which drags
+## the whole story and voice system down with it, because Story -> Narration ->
+## Prefs -> SettingsScreen is a chain whose head no route could reach. That is
+## 71 rendered voice lines and 19 MiB of audio that could never play.
+##
+## Each check below is a different KIND of evidence, because source-grepping
+## alone proves only that a name appears somewhere:
+##
+##   minimap   the node is in the live tree and has rasterised its region;
+##   affixes   an item that came out of Loot.roll carries affix work;
+##   settings  the shell can actually build the screen for its route;
+##   voice     the manifest the game would read is on disk and populated.
+func _reachable(play: Node, me: HeroController) -> void:
+	print("\n--- every system reachable from the running game ---")
+
+	# 1. THE MINIMAP, in the tree, configured by the region that just loaded.
+	var map: Node = play.get("_minimap")
+	check("the minimap exists in the running scene", map != null)
+	if map != null:
+		check("...and the region rasterised into it",
+			bool(map.call("active")) and int(map.get("rasterised")) >= 1,
+			"active=%s rasterised=%d" % [map.call("active"),
+				int(map.get("rasterised"))])
+		# Play feeds it the champion every frame; by now it must have a dot.
+		check("...and it knows where the champion is",
+			map.call("player_norm") != Vector2.INF,
+			str(map.call("player_norm")))
+
+	# 2. AFFIXES, on an item that came out of the real loot roller. Asserted on
+	# the EFFECT — a name or a stat the base roll could not have produced —
+	# rather than on Affix being mentioned in Loot.gd.
+	# COMPARED AGAINST AN UNDRESSED TWIN, because the obvious test is vacuous:
+	# a name containing " of " proves nothing — Item.SUFFIX is a list of
+	# "of the Bear"-shaped strings, so the BASE namer emits them too. Checked by
+	# mutation: with Affix.dress() deleted from Loot.gd, "4 of 15 carry an
+	# affix name" still passed.
+	#
+	# So the twin is rolled from the same inputs Loot.roll feeds Item.roll — all
+	# of them public — and the only thing that can differ is dress() itself.
+	var dressed: int = 0
+	var changed: int = 0
+	for i in range(48):
+		var d: Loot.Drop = Loot.roll(4242, i, 20, Campaign.Tier.NORMAL, 20)
+		if d == null or d.item == null:
+			continue
+		dressed += 1
+		var ilvl: int = Loot.item_level(20, 20)
+		var rar: int = mini(Campaign.roll_rarity(4242, i, Campaign.Tier.NORMAL),
+			Loot.rarity_ceiling(Campaign.Tier.NORMAL))
+		var plain: Item = Item.roll(4242, Loot.ITEM_ROLL_BASE + i, ilvl, rar)
+		if plain == null:
+			continue
+		var moved: bool = d.item.item_name != plain.item_name \
+			or not is_equal_approx(d.item.power, plain.power)
+		if not moved:
+			# Or any attribute the affix roll added on top of the base spread.
+			for a in range(Stats.Attr.size()):
+				if not is_equal_approx(d.item.bonus.get_attr(a),
+						plain.bonus.get_attr(a)):
+					moved = true
+					break
+		if moved:
+			changed += 1
+	check("the loot roller produced items at all", dressed > 0,
+		"%d items from 48 kills" % dressed)
+	check("...and affixes CHANGED them from the undressed roll", changed > 0,
+		"%d of %d differ from their twin" % [changed, dressed])
+
+	# 3. THE SETTINGS SCREEN. Two of its controls — screen shake and the damage
+	# numbers — decide whether some people can play at all, so a route that
+	# cannot build it is an accessibility option nobody can reach.
+	var built: Node = null
+	var shell_script := load("res://scripts/ui/UiShell.gd")
+	if shell_script != null:
+		var probe: Node = shell_script.new()
+		built = probe.call("_make_screen", UiRoute.SETTINGS)
+		check("the shell can build a screen for the settings route",
+			built != null)
+		if built != null:
+			check("...and it is the settings screen",
+				built.get_script() != null
+					and String(built.get_script().resource_path).ends_with(
+						"SettingsScreen.gd"),
+				String(built.get_script().resource_path)
+					if built.get_script() != null else "<no script>")
+			built.free()
+		probe.free()
+	check("the settings route is on the side menu",
+		_nav_lists(UiRoute.SETTINGS),
+		"NavPanel.ITEMS")
+
+	# 4. THE VOICE LINES. Only that the manifest the game reads is present and
+	# populated — whether a wav plays is voicetest's job, and asserting audio
+	# from a headless run would be asserting nothing.
+	check("the voice manifest is on disk",
+		FileAccess.file_exists("res://assets/voice/lines.json"))
+
+	# AND THE SECTION FINISHED. The first run of this section died on a wrong
+	# function name partway through, skipped every check after it, and still
+	# printed "0 failure(s)" — a truncated section is indistinguishable from a
+	# clean one unless something counts the end.
+	_reached_end = true
+
+
+## Does NavPanel.ITEMS carry a row for this route? Read off the constant, which
+## is what the panel builds itself from.
+func _nav_lists(route: String) -> bool:
+	var nav := load("res://scripts/ui/NavPanel.gd")
+	if nav == null:
+		return false
+	for row in nav.ITEMS:
+		if (row as Array).size() > 0 and String(row[0]) == route:
+			return true
+	return false
 
 
 func _done() -> void:

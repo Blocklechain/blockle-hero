@@ -19,6 +19,7 @@ const TRAINING: String = "training"
 const QUESTS: String = "quests"
 const PARTY: String = "party"
 const STORE: String = "store"
+const SETTINGS: String = "settings"
 
 ## Not a screen: leave the menus and start playing. `arg` is the region index.
 const LAUNCH: String = "launch"

@@ -1,5 +1,10 @@
 class_name Campaign
 extends RefCounted
+
+## Preloaded by path, not by bare class_name: Affix.gd is newer than the
+## editor's global class cache, and every headless harness loads this file
+## directly. See tools/classcheck.gd.
+const AffixC := preload("res://scripts/game/Affix.gd")
 # ------------------------------------------------------------------------------
 # The campaign: ONE HUNDRED maps in ten acts, replayed at eight difficulties.
 #
@@ -425,5 +430,8 @@ static func roll_region_loot(seed: int, index: int, tier: int,
 	var ilvl: int = enemy_level(index, tier)
 	for i in range(count):
 		var rid: int = index * 1000 + tier * 100 + i
-		out.append(Item.roll(seed, rid, ilvl, roll_rarity(seed, rid, tier)))
+		var reward: Item = Item.roll(seed, rid, ilvl,
+			roll_rarity(seed, rid, tier))
+		AffixC.dress(reward)
+		out.append(reward)
 	return out

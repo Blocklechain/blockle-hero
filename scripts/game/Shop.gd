@@ -1,5 +1,10 @@
 class_name Shop
 extends RefCounted
+
+## Preloaded by path, not by bare class_name: Affix.gd is newer than the
+## editor's global class cache, and every headless harness loads this file
+## directly. See tools/classcheck.gd.
+const AffixC := preload("res://scripts/game/Affix.gd")
 # ------------------------------------------------------------------------------
 # The merchant: sell loot for gold, buy gear with it.
 #
@@ -75,7 +80,11 @@ static func offers(seed: int, refresh: int, ilvl: int, tier: int) -> Array[Item]
 		var rarity: int = Campaign.roll_rarity(seed, rid, tier)
 		# The merchant never stocks legendaries; those have to be earned.
 		rarity = mini(rarity, Item.Rarity.EPIC)
-		out.append(Item.roll(seed, rid + 90000, ilvl, rarity))
+		# Dressed like a drop: a merchant selling plain gear while every kill
+		# drops affixed gear makes the shop strictly pointless.
+		var stock: Item = Item.roll(seed, rid + 90000, ilvl, rarity)
+		AffixC.dress(stock)
+		out.append(stock)
 	return out
 
 

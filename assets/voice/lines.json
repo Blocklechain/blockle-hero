@@ -1,0 +1,122 @@
+{
+  "_comment": [
+    "CASTING, NOT PROSE.",
+    "",
+    "The words live in scripts/game/Story.gd, which is canon and is checked",
+    "against docs/STORY.md by tools/storytest.gd. This file says WHO SPEAKS",
+    "THEM. An earlier version of this file carried its own copy of the",
+    "narration, written before Story.gd existed, and the two had already",
+    "drifted into contradicting each other: it invented a sworn 'order' that",
+    "sent the player, where canon is explicit that the walker is any of 139",
+    "champions and may not be named or characterised at all. Two sources of",
+    "prose is not a redundancy, it is a bug with a delay on it.",
+    "",
+    "A BEAT IS A SPEAKING ROLE, NOT A VOICE. Recasting the narrator, or",
+    "slowing it down, is one edit here. No call site names a voice, a speed or",
+    "a volume: they call Narration.say_story('act_open', act) and nothing more.",
+    "",
+    "`story` casts every beat Story.gd advertises, and says how that beat's",
+    "lines are named on disk and how they are indexed. Every beat in",
+    "Story.beats() MUST appear here — scripts/game/Narration.gd pushes an",
+    "error for one that does not, and tools/voicetest.gd fails on it, because",
+    "a beat that quietly goes unvoiced is exactly the kind of hole nothing",
+    "else in the project would notice.",
+    "",
+    "  key   — the wav's filename, printf-style. FORMATTED BY BOTH HALVES of",
+    "          the pipeline (Narration.gd to find a line's audio, and",
+    "          tools/gen_voice.py by way of Narration), and %02d means the",
+    "          same thing in GDScript and in Python, so one pattern here",
+    "          cannot disagree with itself about where a line lives.",
+    "  index — how the beat is enumerated:",
+    "            act_line  one wav per line per act   (act, ordinal)",
+    "            act       one wav per act            (act)",
+    "            map       one wav per flavoured map  (map index)",
+    "            once      a single wav               (no arguments)",
+    "",
+    "KEYS ARE FILENAMES — assets/voice/<key>.wav — so [a-z0-9_] only. A key",
+    "with a space or a slash in it renders to a path nothing can load back,",
+    "and the symptom is a silent line rather than an error.",
+    "",
+    "`lines` is for the few utility lines Story.gd does not cover: board and",
+    "bookkeeping chatter, which is not story and does not belong in the story",
+    "module. Their text does live here, because here is its only home."
+  ],
+  "version": 2,
+  "rate": 24000,
+  "default_beat": "narrator",
+
+  "beats": {
+    "narrator": {
+      "voice": "bm_george",
+      "speed": 0.92,
+      "gain_db": -2.0,
+      "note": "British, graver, slow. The road itself, not a person in it."
+    },
+    "boss": {
+      "voice": "am_michael",
+      "speed": 1.0,
+      "gain_db": -0.5,
+      "note": "A champion who got here first and stayed. Louder than the narrator on purpose: it is in the room with you."
+    },
+    "herald": {
+      "voice": "bm_lewis",
+      "speed": 1.0,
+      "gain_db": -4.0,
+      "note": "Board and reward chatter. Sits under everything — bookkeeping, not drama."
+    }
+  },
+
+  "story": {
+    "source": "res://scripts/game/Story.gd",
+    "beats": {
+      "act_open": {
+        "cast": "narrator",
+        "key": "act_%02d_open_%d",
+        "index": "act_line"
+      },
+      "act_close": {
+        "cast": "narrator",
+        "key": "act_%02d_close_%d",
+        "index": "act_line"
+      },
+      "boss_taunt": {
+        "cast": "boss",
+        "key": "act_%02d_taunt",
+        "index": "act"
+      },
+      "first_death": {
+        "cast": "narrator",
+        "key": "first_death",
+        "index": "once"
+      },
+      "region_flavour": {
+        "cast": "narrator",
+        "key": "map_%03d_flavour",
+        "index": "map"
+      }
+    }
+  },
+
+  "lines": {
+    "boss_near": {
+      "beat": "narrator",
+      "text": "Something ahead of you walked this road before you did, and stopped here."
+    },
+    "champion_down": {
+      "beat": "narrator",
+      "text": "Down. The road does not mind, and it does not wait."
+    },
+    "tier_cleared": {
+      "beat": "narrator",
+      "text": "A hundred maps behind you, and the gate at the end of them opens onto the first one again."
+    },
+    "quest_offered": {
+      "beat": "herald",
+      "text": "A reason to go back. Take it, or leave it on the board for somebody else."
+    },
+    "quest_paid": {
+      "beat": "herald",
+      "text": "Paid, and recorded. The board has more where that came from."
+    }
+  }
+}
