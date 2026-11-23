@@ -194,16 +194,30 @@ func _rooted_still_roots() -> void:
 	heavy.cooldown = 0.0
 	hero.abilities = [heavy, heavy, heavy] as Array[Ability]
 
+	# THE START POSITION IS TAKEN ONCE THE ROOT IS ALREADY IN EFFECT.
+	#
+	# Movement happens in _physics_process, and this harness advances on
+	# `process_frame`. Taking `before` on a process frame and then casting
+	# leaves one physics step of RESIDUAL VELOCITY unaccounted for — at run
+	# speed on a slow runner that is about 0.3 m, which is how this read
+	# "0.310 m" in CI (run 45211840476) and 0.000 m on this laptop. The
+	# champion was not failing to root; the test was measuring the handover
+	# into the root rather than the root.
+	#
+	# So: start the cast, let a PHYSICS frame settle it, and only then take the
+	# baseline. What is under test is whether a rooted cast holds the champion
+	# still, not how fast they were going a moment before it began.
 	hero.drive(dir, true)
-	await process_frame
+	await physics_frame
+	hero.use_ability(1, hero.ground_position() + dir * 10.0)
+	await physics_frame
 	var before: Vector2 = hero.ground_position()
-	hero.use_ability(1, before + dir * 10.0)
 	for i in range(30):
 		hero.drive(dir, true)
-		await process_frame
+		await physics_frame
 	var moved: float = before.distance_to(hero.ground_position())
 	check("a rooted cast does NOT move the champion", moved < 0.25,
-		"%.3f m" % moved)
+		"%.3f m over 30 physics frames" % moved)
 	hero.queue_free()
 
 	# And a self-moving ability is rooted whatever it declares, because the
